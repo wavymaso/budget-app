@@ -1,0 +1,12 @@
+# Personal data and secrets — never commit these
+data/
+.env
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# macOS
+.DS_Store
