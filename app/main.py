@@ -43,6 +43,9 @@ def status():
     return {
         "ai_enabled": config.anthropic_api_key() is not None,
         "quickadd_enabled": config.quickadd_token() is not None,
+        "lan_enabled": config.lan_enabled(),
+        "data_dir": str(config.DATA_DIR),
+        "db_path": str(config.DB_PATH),
     }
 app.mount("/static", StaticFiles(directory=config.STATIC_DIR), name="static")
 

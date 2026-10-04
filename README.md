@@ -1,47 +1,63 @@
 # Budget
 
-A personal budget tracker that runs on your own computer. You log card spending (by hand, from a bank CSV, or from an iPhone Shortcut). It sorts each expense into a category and shows how you're doing against your weekly and monthly limits.
+A personal budget tracker that runs as a normal Mac app, with its own window and a Dock icon, and you can open it from Spotlight or Launchpad. You log card spending (by hand, from a bank CSV, or from an iPhone Shortcut). It sorts each expense into a category and shows how you're doing against your weekly and monthly limits.
 
-Everything is stored in one file on your computer, `data/budget.db`. Nothing goes to the internet. The one exception is optional: if you add a Claude API key, the names of merchants the app doesn't recognise are sent to Claude so it can guess a category.
+Everything stays on your Mac. The one exception is optional: if you add a Claude API key, the names of merchants the app doesn't recognise are sent to Claude so it can guess a category.
 
 ---
 
-## 1. Install (once)
+## 1. Install the app
 
-You need **Python 3.10 or newer**. Check with `python3 --version`.
+You need **Python 3.10 or newer** to build it (check with `python3 --version`). After that, the app contains everything it needs.
 
 ```bash
 cd ~/budget-app
-python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
+./build.sh --install
 ```
 
-Optional: copy the settings template if you want AI categorization or the iPhone quick-add:
+This sets up a virtualenv, installs the dependencies, runs the tests, builds `dist/Budget.app` and copies it to **/Applications**. Open **Budget** from Spotlight (`Cmd+Space`, type "Budget"), Launchpad, or the Applications folder. You can keep it in the Dock: right-click the icon, then **Options → Keep in Dock**.
+
+If you'd rather install it by hand, run plain `./build.sh` and drag `dist/Budget.app` into Applications.
+
+When you open Budget, it starts its server on a free port on `127.0.0.1` and shows the window. Closing the window or pressing `Cmd+Q` shuts everything down. The interface, including Tailwind and Chart.js, is bundled inside the app, so it works offline.
+
+## 2. Where your data lives
+
+```
+~/Library/Application Support/Budget/
+  budget.db       your expenses, categories, limits and learned merchants
+  backups/        copies made with "Back up now"
+  .env            optional settings (sections 6 and 7)
+```
+
+This folder is outside the project and outside the app, so **rebuilding, reinstalling or deleting Budget.app never touches your data**. **Settings → Your data → Show in Finder** opens it.
+
+**Moving from the old location:** the first time Budget starts and finds no database in that folder, it copies `data/budget.db` from the project (and `data/backups/`) over. The old files are left where they were. Once you've checked everything is in the app, you can delete the project's `data/` folder.
+
+The app writes a log to `~/Library/Logs/Budget/budget.log`. Look there if it won't start.
+
+## Rebuilding after you change the code
 
 ```bash
-cp .env.example .env
+cd ~/budget-app
+./build.sh --install
 ```
 
-Then open `.env` in a text editor (see sections 6 and 7).
+That's the whole loop. If Budget is open, the script quits it, replaces `/Applications/Budget.app` with the new build, and you open it again. Your data stays in Application Support, so nothing is lost.
 
-## 2. Run it
+`./build.sh` stops if any test fails, so a broken change never gets installed.
+
+The version shown in Finder's **Get Info** comes from the `VERSION` file. To change the icon, edit `macos/make_icon.py`, run `.venv/bin/python macos/make_icon.py`, and rebuild.
+
+### Running from source while developing
 
 ```bash
-python3 run.py
+python3 run.py            # opens the app window straight from the code (no build needed)
+python3 run.py --debug    # same, with the web inspector (right-click > Inspect Element)
+python3 run.py --browser  # no window: serve at http://localhost:8000 for a normal browser
 ```
 
-Open **http://localhost:8000** in your browser. Press `Ctrl+C` in the terminal to stop the app.
-
-- The database and its tables are created automatically the first time you run it.
-- Closing the browser or stopping the server never loses data. Every change is saved straight to `data/budget.db`.
-- The page loads its styling (Tailwind) and charts (Chart.js) from the internet, so the first load needs a connection.
-
-Other options:
-
-```bash
-python3 run.py --port 8080   # use a different port
-python3 run.py --lan         # let your phone reach the quick-add API (see section 7)
-```
+`run.py` uses the same data folder as the installed app. Don't run both at the same time.
 
 ## 3. Using it
 
@@ -89,41 +105,46 @@ Rows the app can't read, like an impossible date, are listed and skipped.
 
 ## 6. AI categorization (optional)
 
-Put your key from https://console.anthropic.com in `.env`:
+Create the settings file from the template:
+
+```bash
+cp ~/budget-app/.env.example ~/Library/"Application Support"/Budget/.env
+open -e ~/Library/"Application Support"/Budget/.env
+```
+
+Put your key from https://console.anthropic.com on this line:
 
 ```
 ANTHROPIC_API_KEY=sk-ant-...
 ```
 
-Restart the app. Merchants that none of the other layers recognise are sent to Claude (model `claude-opus-5-5`) and it picks one of your categories. Only the merchant name is sent, never amounts or dates. Each answer is cached, so the same merchant is never sent twice. If the key is missing, wrong, or you're offline, the app simply marks the expense Uncategorized.
+Then quit and reopen Budget. Merchants that none of the other layers recognise are sent to Claude (model `claude-opus-5-5`) and it picks one of your categories. Only the merchant name is sent, never amounts or dates. Each answer is cached, so the same merchant is never sent twice. If the key is missing, wrong, or you're offline, the app simply marks the expense Uncategorized.
 
 ## 7. Quick-add from your iPhone (Shortcuts)
 
-### Set a token
+### Set a token and turn on phone access
 
 Create a secret token:
 
 ```bash
-.venv/bin/python -c "import secrets; print(secrets.token_urlsafe(24))"
+python3 -c "import secrets; print(secrets.token_urlsafe(24))"
 ```
 
-Put it in `.env`:
+In `~/Library/Application Support/Budget/.env` (see section 6), set:
 
 ```
 QUICKADD_TOKEN=paste-the-token-here
+BUDGET_LAN=1
+BUDGET_PORT=8000
 ```
 
-### Start the app in LAN mode
+Quit and reopen Budget. With `BUDGET_LAN=1` it listens on your Wi-Fi at a fixed port (8000) instead of a random local one, so the Shortcut always has the same address. The first time, macOS asks whether Budget can accept incoming network connections. Click **Allow**. The Settings page shows "Reachable from your phone on Wi-Fi: yes".
 
-```bash
-python3 run.py --lan
-```
+To find your Mac's address, go to **System Settings → Wi-Fi → Details** for the IP address, or use its local name from **System Settings → General → Sharing → Local hostname** (e.g. `My-MacBook.local`, which doesn't change). The quick-add URL is then `http://My-MacBook.local:8000/api/expenses/quick`.
 
-The terminal prints the address to use, for example `http://192.168.1.23:8000/api/expenses/quick`. The first time, macOS may ask whether Python can accept incoming connections. Click **Allow**.
+When running from source, `python3 run.py --lan` does the same and prints the URL.
 
-> **What other devices can reach.** In `--lan` mode, other devices on the Wi-Fi can only call the token-protected quick-add endpoint. The dashboard and your transactions are still only available on your Mac. Even so, start `--lan` only on networks you trust, like home, and use plain `python3 run.py` on public or university Wi-Fi.
-
-Your Mac's IP address can change. A steadier option is your Mac's local name: go to **System Settings → General → Sharing** and look for "Local hostname", e.g. `My-MacBook.local`. Then the URL is `http://My-MacBook.local:8000/api/expenses/quick`.
+> **What other devices can reach.** With phone access on, other devices on the Wi-Fi can only call the token-protected quick-add endpoint. The dashboard and your transactions are still only available on your Mac. Even so, turn `BUDGET_LAN` on only if you mostly use trusted networks like home. On public or university Wi-Fi, set it back to `0`.
 
 ### The API
 
@@ -139,7 +160,7 @@ Your Mac's IP address can change. A steadier option is your Mac's local name: go
 
 The reply is the saved expense plus a `message` such as `"Saved 4,50 € at Starbucks · Eating Out"`.
 
-Test it from the Mac:
+Test it from the Mac (with `BUDGET_LAN=1`, so the port is 8000):
 
 ```bash
 curl -X POST http://localhost:8000/api/expenses/quick \
@@ -166,15 +187,15 @@ In the **Shortcuts** app, tap **+** and add these actions in order:
 
 Add it to your Home Screen, or trigger it from an Apple Pay automation (**Automation → Wallet → When I tap a card**). An automation can pass the merchant and amount in directly, so you don't have to type them.
 
-Your Mac must be awake with `python3 run.py --lan` running for the Shortcut to work.
+Your Mac must be awake, with Budget open, for the Shortcut to work.
 
 ## 8. Back up and restore your data
 
-- **Back up:** go to **Settings → Your data → Back up now**. This saves a timestamped copy such as `data/backups/budget-2026-10-04_17-49-49.db`. It's safe to do while the app is running. For extra safety, copy the `data/` folder to iCloud Drive or a USB stick now and then.
-- **Restore:** stop the app (`Ctrl+C`). Move the current `data/budget.db` aside, and delete `data/budget.db-wal` and `data/budget.db-shm` if they exist. Copy a backup to `data/budget.db` and start the app again.
-- **Export:** **Settings → Export all to CSV** or **Transactions → Export CSV**. The file uses `;` separators and decimal commas, so it opens correctly in Spanish-language Excel and Numbers.
+- **Back up:** go to **Settings → Your data → Back up now**. This saves a timestamped copy such as `backups/budget-2026-10-04_17-49-49.db` next to the database. It's safe to do while the app is open. For extra safety, copy the whole `~/Library/Application Support/Budget` folder to iCloud Drive or a USB stick now and then.
+- **Restore:** quit Budget. In `~/Library/Application Support/Budget`, move `budget.db` aside and delete `budget.db-wal` and `budget.db-shm` if they exist. Copy the backup you want to `budget.db` and open Budget again.
+- **Export:** **Settings → Export all to CSV** or **Transactions → Export CSV** opens a Save dialog. The file uses `;` separators and decimal commas, so it opens correctly in Spanish-language Excel and Numbers.
 
-`data/` and `.env` are listed in `.gitignore`, so your spending and keys are never committed if you put the code on GitHub.
+Your data and settings are never inside the project folder, so they can't end up on GitHub. `data/`, `.env`, `build/` and `dist/` are also in `.gitignore`.
 
 ## 9. Tests
 
@@ -182,22 +203,29 @@ Your Mac must be awake with `python3 run.py --lan` running for the Shortcut to w
 .venv/bin/python -m pytest
 ```
 
-The tests cover merchant clean-up, every categorization layer (including corrections beating rules, and AI caching and failure), budget maths (Monday weeks, month ends and leap years, the 75%/100% colour thresholds, € left and € per day), and the quick-add API, including its token check and LAN restriction. They use a temporary database and never touch your real data.
+The tests cover merchant clean-up, every categorization layer (including corrections beating rules, and AI caching and failure), budget maths (Monday weeks, month ends and leap years, the 75%/100% colour thresholds, € left and € per day), the quick-add API (including its token check and LAN restriction), moving data from the old `data/` folder, and the native CSV export. They use temporary folders and never touch your real data.
 
 ## Project layout
 
 ```
-run.py                 start the app (python3 run.py)
+build.sh               build Budget.app (./build.sh --install also installs it)
+run.py                 run from source: python3 run.py
+VERSION                app version shown in Finder
 app/
+  desktop.py           native window (pywebview) + background server + shutdown
+  config.py            paths (Application Support), .env settings
   main.py              web app setup, LAN restriction
-  db.py                database schema, created automatically
+  db.py                database schema, created automatically; moves old data/
   seed.py              default categories + Spanish merchant keywords
   normalize.py         merchant name clean-up
   categorizer.py       learned → similar → keyword → AI
   budgets.py           week/month maths, limits, € left / per day
   importer.py          CSV reading, date/amount parsing, duplicate checks
   routers/             the JSON API (expenses, categories, budgets, dashboard, import/export)
-static/                the web page (HTML + Tailwind + Chart.js, no build step)
+static/                the interface (HTML + JS; Tailwind and Chart.js in static/vendor)
+macos/
+  Budget.spec          PyInstaller recipe
+  launcher.py          entry point inside the app
+  make_icon.py         draws icon.png and Budget.icns
 tests/                 pytest tests
-data/                  your database and backups (created on first run, not in git)
 ```

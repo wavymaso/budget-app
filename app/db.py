@@ -1,5 +1,7 @@
 """SQLite storage. The database file and tables are created automatically."""
 import json
+import logging
+import shutil
 import sqlite3
 from pathlib import Path
 
@@ -68,6 +70,44 @@ CREATE TABLE IF NOT EXISTS settings (
     value TEXT NOT NULL
 );
 """
+
+
+log = logging.getLogger("budget.db")
+
+
+def migrate_legacy_data() -> str | None:
+    """Move data/budget.db (the old location inside the project) to Application Support.
+
+    Runs only when there is no database in the new place yet. The old files are
+    left untouched; once you've checked everything is there you can delete data/.
+    Returns a short description of what was moved, or None.
+    """
+    if config.DB_PATH.exists() or config.LEGACY_DATA_DIR is None:
+        return None
+    old_db = config.LEGACY_DATA_DIR / "budget.db"
+    if not old_db.exists():
+        return None
+    config.DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    tmp = config.DB_PATH.with_suffix(".db.migrating")
+    src = sqlite3.connect(f"file:{old_db}?mode=ro", uri=True)
+    dst = sqlite3.connect(tmp)
+    try:
+        src.backup(dst)   # also picks up anything still in the -wal file
+    finally:
+        dst.close()
+        src.close()
+    tmp.replace(config.DB_PATH)
+    copied = 0
+    old_backups = config.LEGACY_DATA_DIR / "backups"
+    if old_backups.is_dir():
+        config.BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+        for f in old_backups.glob("*.db"):
+            if not (config.BACKUP_DIR / f.name).exists():
+                shutil.copy2(f, config.BACKUP_DIR / f.name)
+                copied += 1
+    msg = f"Moved {old_db} to {config.DB_PATH}" + (f" (+{copied} backups)" if copied else "")
+    log.info(msg)
+    return msg
 
 
 def db_path() -> Path:

@@ -146,14 +146,13 @@ def commit(body: CommitIn, db: sqlite3.Connection = Depends(get_db)):
     return {"added": added}
 
 
-@router.get("/export.csv")
-def export_csv(db: sqlite3.Connection = Depends(get_db)):
+def build_export_csv(db: sqlite3.Connection) -> str:
     rows = db.execute(
         """SELECT e.id, e.date, e.merchant_raw, e.amount_cents, c.name AS category, e.note, e.source
            FROM expenses e LEFT JOIN categories c ON c.id = e.category_id ORDER BY e.date, e.id"""
     ).fetchall()
     buf = io.StringIO()
-    buf.write("﻿")  # BOM so Excel opens accents correctly
+    buf.write("\ufeff")  # BOM so Excel opens accents correctly
     # Semicolons + comma decimals: opens cleanly in Spanish-locale Excel and Numbers.
     w = csv.writer(buf, delimiter=";")
     w.writerow(["ID", "Date", "Merchant", "Amount (EUR)", "Category", "Note", "Source"])
@@ -161,9 +160,17 @@ def export_csv(db: sqlite3.Connection = Depends(get_db)):
         y, m, d = r["date"].split("-")
         w.writerow([r["id"], f"{d}/{m}/{y}", r["merchant_raw"], f"{r['amount_cents'] / 100:.2f}".replace(".", ","),
                     r["category"] or "Uncategorized", r["note"] or "", r["source"]])
-    filename = f"budget-export-{datetime.now():%Y-%m-%d}.csv"
-    return StreamingResponse(iter([buf.getvalue()]), media_type="text/csv; charset=utf-8",
-                             headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+    return buf.getvalue()
+
+
+def export_filename() -> str:
+    return f"budget-export-{datetime.now():%Y-%m-%d}.csv"
+
+
+@router.get("/export.csv")
+def export_csv(db: sqlite3.Connection = Depends(get_db)):
+    return StreamingResponse(iter([build_export_csv(db)]), media_type="text/csv; charset=utf-8",
+                             headers={"Content-Disposition": f'attachment; filename="{export_filename()}"'})
 
 
 @router.post("/backup")
@@ -177,7 +184,7 @@ def backup():
     finally:
         dst.close()
         src.close()
-    return {"file": str(target.relative_to(config.BASE_DIR)), "size_bytes": target.stat().st_size}
+    return {"file": target.name, "path": str(target), "size_bytes": target.stat().st_size}
 
 
 @router.get("/backups")
@@ -185,5 +192,5 @@ def list_backups():
     if not config.BACKUP_DIR.exists():
         return []
     files = sorted(config.BACKUP_DIR.glob("budget-*.db"), reverse=True)
-    return [{"file": str(f.relative_to(config.BASE_DIR)), "size_bytes": f.stat().st_size,
+    return [{"file": f.name, "path": str(f), "size_bytes": f.stat().st_size,
              "created": datetime.fromtimestamp(f.stat().st_mtime).isoformat(timespec="seconds")} for f in files]

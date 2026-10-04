@@ -91,6 +91,26 @@ async function api(path, { method = "GET", body } = {}) {
   return res.status === 204 ? null : res.json();
 }
 
+/* --- Desktop app (pywebview) ------------------------------------------- */
+
+const desktop = () => window.pywebview?.api;
+
+// Dropping a file anywhere outside the import box would replace the page.
+window.addEventListener("dragover", (e) => e.preventDefault());
+window.addEventListener("drop", (e) => e.preventDefault());
+
+// In the app window there is no browser download bar, so export goes through
+// a native Save dialog instead of following the link.
+document.addEventListener("click", async (e) => {
+  const link = e.target.closest('a[href="/api/export.csv"]');
+  if (!link || !desktop()) return;
+  e.preventDefault();
+  try {
+    const path = await desktop().export_csv();
+    if (path) toast(`Exported to ${path.split("/").pop()}`);
+  } catch (err) { toast(`Export failed: ${err.message || err}`, "error"); }
+});
+
 function toast(msg, kind = "ok") {
   const el = $("#toast");
   el.textContent = msg;
@@ -571,13 +591,17 @@ async function viewSettings(root) {
     </div>`;
 
   const status = await api("/api/status");
+  const dot = (on) => `<span class="inline-block w-2 h-2 rounded-full mr-2 ${on ? "bg-emerald-500" : "bg-slate-300"}"></span>`;
   $("[data-status]", root).innerHTML = `
-    <p><span class="inline-block w-2 h-2 rounded-full mr-2 ${status.ai_enabled ? "bg-emerald-500" : "bg-slate-300"}"></span>
-      AI categorization: <b>${status.ai_enabled ? "on" : "off"}</b>
-      <span class="text-slate-400">${status.ai_enabled ? "(unknown merchants are sent to Claude)" : "(add ANTHROPIC_API_KEY to .env and restart to enable)"}</span></p>
-    <p><span class="inline-block w-2 h-2 rounded-full mr-2 ${status.quickadd_enabled ? "bg-emerald-500" : "bg-slate-300"}"></span>
-      Quick-add API for iPhone Shortcuts: <b>${status.quickadd_enabled ? "on" : "off"}</b>
-      <span class="text-slate-400">${status.quickadd_enabled ? "(see README)" : "(set QUICKADD_TOKEN in .env and restart to enable)"}</span></p>`;
+    <p>${dot(status.ai_enabled)}AI categorization: <b>${status.ai_enabled ? "on" : "off"}</b>
+      <span class="text-slate-400">${status.ai_enabled ? "(unknown merchants are sent to Claude)" : "(set ANTHROPIC_API_KEY)"}</span></p>
+    <p>${dot(status.quickadd_enabled)}Quick-add API for iPhone Shortcuts: <b>${status.quickadd_enabled ? "on" : "off"}</b>
+      <span class="text-slate-400">${status.quickadd_enabled ? "" : "(set QUICKADD_TOKEN)"}</span></p>
+    <p>${dot(status.lan_enabled)}Reachable from your phone on Wi-Fi: <b>${status.lan_enabled ? "yes" : "no"}</b>
+      <span class="text-slate-400">${status.lan_enabled ? "(quick-add only)" : "(set BUDGET_LAN=1)"}</span></p>
+    <p class="text-xs text-slate-400 pt-1">Settings go in a <code class="bg-slate-100 rounded px-1">.env</code> file in
+      <code class="bg-slate-100 rounded px-1 break-all">${esc(status.data_dir.replace(/^\/Users\/[^/]+/, "~"))}</code>.
+      Quit and reopen Budget after changing it. See the README for details.</p>`;
 
   // --- categories ---------------------------------------------------------
   const catsEl = $("[data-cats]", root);
@@ -1242,23 +1266,31 @@ async function settingsData(el) {
   el.className = "card p-5";
   el.innerHTML = `
     <h2 class="font-semibold mb-1">Your data</h2>
-    <p class="text-sm text-slate-500 mb-4">Everything is stored in <code class="text-xs bg-slate-100 rounded px-1">data/budget.db</code> on this computer.</p>
+    <p class="text-sm text-slate-500 mb-4">Everything is stored on this computer in
+      <code data-db-path class="text-xs bg-slate-100 rounded px-1 break-all"></code>.
+      Rebuilding or updating the app never touches it.</p>
     <div class="flex flex-wrap gap-2">
       <button data-backup class="btn btn-primary">Back up now</button>
       <a href="/api/export.csv" class="btn btn-secondary">Export all to CSV</a>
+      <button data-show-folder class="btn btn-ghost hidden">Show in Finder</button>
     </div>
     <div data-backups class="mt-4 text-sm"></div>`;
   async function list() {
     const files = await api("/api/backups");
     $("[data-backups]", el).innerHTML = files.length ? `
-      <p class="text-xs text-slate-500 mb-1">Backups in <code class="bg-slate-100 rounded px-1">data/backups/</code>:</p>
+      <p class="text-xs text-slate-500 mb-1">Backups (in the <code class="bg-slate-100 rounded px-1">backups</code> folder next to the database):</p>
       <ul class="text-xs text-slate-600 space-y-0.5 max-h-40 overflow-y-auto">${files.slice(0, 20).map((f) =>
-        `<li class="tabular">${esc(f.file.split("/").pop())} <span class="text-slate-400">· ${(f.size_bytes / 1024).toFixed(0)} KB</span></li>`).join("")}</ul>`
+        `<li class="tabular">${esc(f.file)} <span class="text-slate-400">· ${(f.size_bytes / 1024).toFixed(0)} KB</span></li>`).join("")}</ul>`
       : `<p class="text-xs text-slate-400">No backups yet.</p>`;
   }
+  const status = await api("/api/status");
+  $("[data-db-path]", el).textContent = status.db_path.replace(/^\/Users\/[^/]+/, "~");
+  const showFolder = $("[data-show-folder]", el);
+  if (desktop()) showFolder.classList.remove("hidden");
+  showFolder.addEventListener("click", () => desktop()?.show_data_folder());
   $("[data-backup]", el).addEventListener("click", async (e) => {
     e.target.disabled = true;
-    try { const r = await api("/api/backup", { method: "POST" }); toast(`Saved ${r.file.split("/").pop()}`); list(); }
+    try { const r = await api("/api/backup", { method: "POST" }); toast(`Saved ${r.file}`); list(); }
     catch (err) { toast(err.message, "error"); }
     finally { e.target.disabled = false; }
   });
