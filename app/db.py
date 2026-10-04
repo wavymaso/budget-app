@@ -65,6 +65,28 @@ CREATE TABLE IF NOT EXISTS budgets (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS ux_budgets ON budgets(COALESCE(category_id, 0), period);
 
+-- One row per Apple Pay email seen in Gmail (keyed by Message-ID, so nothing imports twice).
+CREATE TABLE IF NOT EXISTS email_messages (
+    id              INTEGER PRIMARY KEY,
+    message_id      TEXT NOT NULL UNIQUE,
+    uid             INTEGER,
+    status          TEXT NOT NULL,   -- imported | review | accepted | dismissed | refused
+    reason          TEXT,
+    sender          TEXT,
+    line            TEXT,            -- the transaction line (or an excerpt if none was found)
+    date            TEXT,
+    merchant        TEXT,
+    amount_cents    INTEGER,
+    currency        TEXT,
+    category_id     INTEGER REFERENCES categories(id) ON DELETE SET NULL,
+    category_source TEXT,
+    duplicate_of    INTEGER REFERENCES expenses(id) ON DELETE SET NULL,
+    expense_id      INTEGER REFERENCES expenses(id) ON DELETE SET NULL,
+    received_at     TEXT,
+    processed_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_email_status ON email_messages(status);
+
 CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL

@@ -18,6 +18,7 @@ import webview
 
 from . import config
 from .db import connect, init_db, migrate_legacy_data
+from .email_sync import Poller
 
 log = logging.getLogger("budget")
 
@@ -119,6 +120,8 @@ def main(lan: bool | None = None, port: int | None = None, debug: bool = False) 
     server = BackgroundServer(host, port)
     server.start()
     log.info("Budget started on port %s (lan=%s), data in %s", server.port, lan, config.DATA_DIR)
+    poller = Poller()   # checks Gmail now, then every few minutes (if set up)
+    poller.start()
 
     api = DesktopApi()
     window = webview.create_window(
@@ -134,6 +137,7 @@ def main(lan: bool | None = None, port: int | None = None, debug: bool = False) 
         if not stopped.is_set():
             stopped.set()
             log.info("Window closed, shutting down")
+            poller.stop()
             server.stop()
             log.info("Server stopped")
 

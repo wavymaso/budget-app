@@ -13,6 +13,7 @@ a = Analysis(
     hiddenimports=[
         "app._build_info",
         "webview.platforms.cocoa",
+        "keyring.backends.macOS",
         *collect_submodules("app"),
         *collect_submodules("uvicorn"),
     ],

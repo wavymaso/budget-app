@@ -56,6 +56,8 @@ def main() -> None:
         init_db()
         port = args.port or 8000
         print(f"  Open http://localhost:{port} — press Ctrl+C to stop.\n", flush=True)
+        from app.email_sync import Poller
+        Poller().start()
         uvicorn.run("app.main:app", host="0.0.0.0" if args.lan else "127.0.0.1", port=port, log_level="warning")
         return
 

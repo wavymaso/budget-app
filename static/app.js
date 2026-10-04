@@ -111,13 +111,13 @@ document.addEventListener("click", async (e) => {
   } catch (err) { toast(`Export failed: ${err.message || err}`, "error"); }
 });
 
-function toast(msg, kind = "ok") {
+function toast(msg, kind = "ok", ms = null) {
   const el = $("#toast");
   el.textContent = msg;
   el.className = el.className.replace(/bg-\S+/g, "") + (kind === "error" ? " bg-red-600" : " bg-slate-900");
   el.classList.remove("hidden");
   clearTimeout(toast.t);
-  toast.t = setTimeout(() => el.classList.add("hidden"), kind === "error" ? 5000 : 2500);
+  toast.t = setTimeout(() => el.classList.add("hidden"), ms ?? (kind === "error" ? 5000 : 2500));
 }
 
 function openModal(title, contentEl) {
@@ -564,6 +564,7 @@ async function viewSettings(root) {
     <h1 class="text-xl font-semibold mb-4">Settings</h1>
     <div class="space-y-6">
       <section data-budgets></section>
+      <section data-gmail-settings></section>
       <section class="card p-5">
         <div class="flex items-baseline justify-between mb-1">
           <h2 class="font-semibold">Categories</h2>
@@ -740,6 +741,7 @@ async function viewSettings(root) {
 
   // Filled in by later phases.
   var renderBudgets = await settingsBudgets($("[data-budgets]", root));
+  await settingsGmail($("[data-gmail-settings]", root));
   await settingsData($("[data-data]", root));
 }
 
@@ -912,7 +914,12 @@ async function viewDashboard(root, params) {
   const positiveTotal = spentCats.reduce((a, c) => a + c.spent_cents, 0);
   const txLink = (extra = "") => `#/transactions?date_from=${d.start}&date_to=${d.end}${extra}`;
 
+  const emailStatus = await api("/api/email/status").catch(() => ({ review_count: 0 }));
   root.innerHTML = `
+    ${emailStatus.review_count ? `<a href="#/import" class="flex items-center gap-3 mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 hover:bg-amber-100">
+      <span class="inline-flex w-5 h-5 rounded-full bg-amber-500 text-white items-center justify-center text-xs font-bold">!</span>
+      <span class="flex-1">${plural(emailStatus.review_count, "transaction from your iPhone needs", "transactions from your iPhone need")} review</span>
+      <span class="font-medium">Review →</span></a>` : ""}
     <div class="grid sm:grid-cols-2 gap-4">
       ${glanceCard("This week", glance.week.overall, glance.week)}
       ${glanceCard("This month", glance.month.overall, glance.month)}
@@ -1114,6 +1121,7 @@ async function viewDashboard(root, params) {
 async function viewImport(root) {
   const S = { text: "", parsed: null, rows: [] };
   root.innerHTML = `
+    <section data-review class="hidden mb-8"></section>
     <h1 class="text-xl font-semibold mb-1">Import a bank statement</h1>
     <p class="text-sm text-slate-500 mb-5">Download a CSV from your bank, drop it here, check the preview, then import.</p>
     <label data-drop class="card p-8 flex flex-col items-center justify-center text-center border-2 border-dashed border-slate-300 cursor-pointer hover:border-slate-400 transition">
@@ -1124,6 +1132,8 @@ async function viewImport(root) {
     </label>
     <section data-map class="hidden card p-5 mt-5"></section>
     <section data-preview class="hidden mt-5"></section>`;
+
+  await reviewSection($("[data-review]", root));
 
   const drop = $("[data-drop]", root);
   async function useFile(file) {
@@ -1299,6 +1309,202 @@ async function settingsData(el) {
 
 
 /* ===========================================================================
+   Gmail import: settings, "Needs review", and the "new transactions" notice
+   ======================================================================== */
+
+const fmtDateTime = (iso) => iso ? `${fmtDate(iso.slice(0, 10))} ${iso.slice(11, 16)}` : "";
+const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+
+function syncSummary(s, prefix = null) {
+  if (!s) return "Not checked yet.";
+  prefix = prefix ?? `Last check ${fmtDateTime(s.finished_at)}`;
+  if (s.error) return `${prefix}: ${s.error}`;
+  const parts = [`${s.imported} imported`];
+  if (s.review) parts.push(`${s.review} need${s.review === 1 ? "s" : ""} review`);
+  if (s.refused) parts.push(`${s.refused} refused (not from you)`);
+  return `${prefix}: ${parts.join(" · ")}.`;
+}
+
+async function settingsGmail(el) {
+  el.className = "card p-5";
+  let cfg = await api("/api/email/settings");
+  el.innerHTML = `
+    <div class="flex items-baseline justify-between gap-2 flex-wrap mb-1">
+      <h2 class="font-semibold">Gmail import (Apple Pay emails)</h2>
+      <span class="text-xs text-slate-400">The password is stored in your Mac's Keychain</span>
+    </div>
+    <p class="text-sm text-slate-500 mb-4">Reads emails with the subject <b>BUDGET</b> that your iPhone Shortcut sends you, from one Gmail label.
+      Gmail is opened read-only: nothing is ever marked, moved or deleted.</p>
+    <form data-gmail class="space-y-3" autocomplete="off">
+      <label class="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
+        <input type="checkbox" name="enabled" class="rounded border-slate-300" ${cfg.enabled ? "checked" : ""}>
+        Check automatically when Budget opens and every ${cfg.check_every_minutes} minutes
+      </label>
+      <div class="grid sm:grid-cols-3 gap-3">
+        <div><label class="label">Gmail address</label>
+          <input name="address" type="email" class="input" placeholder="you@gmail.com" value="${esc(cfg.address)}"></div>
+        <div><label class="label">App password</label>
+          <input name="password" type="password" class="input" autocomplete="new-password"
+                 placeholder="${cfg.has_password ? "Saved — type to replace" : "16-letter app password"}">
+          ${cfg.has_password ? `<button type="button" data-forget class="text-xs text-slate-500 hover:text-red-600 mt-1">Forget saved password</button>` : ""}</div>
+        <div><label class="label">Gmail label</label>
+          <input name="label" class="input" value="${esc(cfg.label)}"></div>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <button class="btn btn-primary">Save</button>
+        <button type="button" data-test class="btn btn-secondary">Test connection</button>
+        <button type="button" data-check class="btn btn-ghost">Check now</button>
+      </div>
+      <div data-result class="hidden rounded-lg px-3 py-2 text-sm"></div>
+      <p data-last class="text-xs text-slate-500">${esc(syncSummary(cfg.last_sync))}</p>
+    </form>`;
+  const form = $("[data-gmail]", el);
+  const result = $("[data-result]", el);
+  const show = (ok, msg) => {
+    result.className = `rounded-lg px-3 py-2 text-sm ${ok ? "bg-emerald-50 text-emerald-800" : "bg-red-50 text-red-800"}`;
+    result.textContent = `${ok ? "✓" : "✕"} ${msg}`;
+  };
+  const values = () => ({ address: form.address.value.trim(), label: form.label.value.trim() || "Budget",
+                          enabled: form.enabled.checked, password: form.password.value || null });
+  async function save(extra = {}) {
+    cfg = await api("/api/email/settings", { method: "PUT", body: { ...values(), ...extra } });
+    form.password.value = "";
+    form.password.placeholder = cfg.has_password ? "Saved — type to replace" : "16-letter app password";
+    return cfg;
+  }
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    try { await save(); toast("Gmail settings saved"); } catch (err) { show(false, err.message); }
+  });
+  form.addEventListener("change", (e) => { if (e.target.name === "enabled") save().then(() => toast("Saved")).catch((err) => show(false, err.message)); });
+  $("[data-forget]", el)?.addEventListener("click", async () => {
+    await save({ forget_password: true, password: null });
+    toast("Password removed from Keychain");
+    settingsGmail(el);
+  });
+  $("[data-test]", el).addEventListener("click", async (e) => {
+    e.target.disabled = true; e.target.textContent = "Testing…";
+    try {
+      const v = values();
+      const r = await api("/api/email/test", { method: "POST", body: { address: v.address, label: v.label, password: v.password } });
+      show(r.ok, r.message);
+    } catch (err) { show(false, err.message); }
+    finally { e.target.disabled = false; e.target.textContent = "Test connection"; }
+  });
+  $("[data-check]", el).addEventListener("click", async (e) => {
+    e.target.disabled = true; e.target.textContent = "Checking…";
+    try {
+      if (form.password.value || form.address.value.trim() !== cfg.address) await save();
+      const r = await api("/api/email/sync", { method: "POST" });
+      $("[data-last]", el).textContent = syncSummary(r);
+      if (r.error) show(false, r.error);
+      else { show(true, syncSummary(r, "Checked just now")); emailWatch.lastRun = r.run; refreshReviewBadge(); }
+    } catch (err) { show(false, err.message); }
+    finally { e.target.disabled = false; e.target.textContent = "Check now"; }
+  });
+}
+
+/** The "Needs review" list: emails that couldn't be imported on their own. */
+async function reviewSection(el, { onChange } = {}) {
+  const items = await api("/api/email/review");
+  if (!items.length) { el.innerHTML = ""; el.classList.add("hidden"); return 0; }
+  el.classList.remove("hidden");
+  el.innerHTML = `
+    <div class="flex items-baseline justify-between mb-2">
+      <h2 class="font-semibold">Needs review <span class="ml-1 rounded-full bg-amber-100 text-amber-800 text-xs px-2 py-0.5">${items.length}</span></h2>
+      <span class="text-xs text-slate-400">From your iPhone's Apple Pay emails</span>
+    </div>
+    <div class="space-y-3">${items.map((it) => `
+      <form data-item="${it.id}" class="card p-4 space-y-3">
+        <div class="flex items-start justify-between gap-2">
+          <p class="text-sm text-amber-800"><b>${esc(it.reason[0].toUpperCase() + it.reason.slice(1))}</b></p>
+          <span class="text-xs text-slate-400 shrink-0">${it.received_at ? fmtDateTime(it.received_at) : ""}</span>
+        </div>
+        ${it.line ? `<code class="block text-xs bg-slate-50 rounded px-2 py-1 text-slate-600 break-all">${esc(it.line)}</code>` : ""}
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div><label class="label">Date</label>${dateField("date", it.date || todayISO())}</div>
+          <div><label class="label">Merchant</label><input name="merchant" class="input" value="${esc(it.merchant || "")}" placeholder="Where?"></div>
+          <div><label class="label">Amount (€)</label><input name="amount" class="input tabular" inputmode="decimal"
+               value="${it.amount_cents ? (it.amount_cents / 100).toFixed(2).replace(".", ",") : ""}" placeholder="0,00"></div>
+          <div><label class="label">Category</label><select name="category" class="input">
+               <option value="">Auto</option>${categoryOptions(it.category_id ?? "", { all: false, uncategorized: false })}</select></div>
+        </div>
+        <div class="flex gap-2">
+          <button class="btn btn-primary">Add expense</button>
+          <button type="button" data-dismiss class="btn btn-ghost">${it.duplicate_of ? "It's a duplicate, skip" : "Dismiss"}</button>
+        </div>
+      </form>`).join("")}</div>`;
+  wireDateFields(el);
+  el.onsubmit = async (e) => {
+    e.preventDefault();
+    const f = e.target.closest("[data-item]");
+    const date = parseDate(f.date.value), amount = parseAmount(f.amount.value);
+    if (!f.merchant.value.trim()) return toast("Enter the merchant", "error");
+    if (!(amount > 0)) return toast("Enter an amount above 0", "error");
+    if (!date) return toast("Enter the date as DD/MM/YYYY", "error");
+    try {
+      await api(`/api/email/review/${f.dataset.item}/accept`, { method: "POST", body: {
+        merchant: f.merchant.value.trim(), amount: amount.toFixed(2), date,
+        category_id: f.category.value ? Number(f.category.value) : null } });
+      toast("Expense added");
+      await reviewSection(el, { onChange }); refreshReviewBadge(); onChange?.();
+    } catch (err) { toast(err.message, "error"); }
+  };
+  el.onclick = async (e) => {
+    if (!e.target.closest("[data-dismiss]")) return;
+    const f = e.target.closest("[data-item]");
+    await api(`/api/email/review/${f.dataset.item}/dismiss`, { method: "POST" });
+    toast("Dismissed");
+    await reviewSection(el, { onChange }); refreshReviewBadge(); onChange?.();
+  };
+  return items.length;
+}
+
+// --- watch for new imports while the app is open -------------------------
+
+const emailWatch = { lastRun: null };
+
+function setReviewBadge(n) {
+  $$('[data-route="import"]').forEach((a) => {
+    let b = $("[data-badge]", a);
+    if (!n) { b?.remove(); return; }
+    if (!b) {
+      b = document.createElement("span");
+      b.dataset.badge = "";
+      b.className = "ml-1 inline-flex min-w-[1.1rem] h-[1.1rem] items-center justify-center rounded-full bg-amber-500 text-white text-[10px] font-semibold px-1";
+      a.append(b);
+    }
+    b.textContent = n;
+  });
+}
+async function refreshReviewBadge() {
+  try { setReviewBadge((await api("/api/email/status")).review_count); } catch { /* offline */ }
+}
+
+async function pollEmail() {
+  let s;
+  try { s = await api("/api/email/status"); } catch { return; }
+  setReviewBadge(s.review_count);
+  const last = s.last_sync;
+  if (!last || last.run == null) return;
+  if (emailWatch.lastRun === null) {
+    emailWatch.lastRun = last.run;
+    // The check that runs at launch usually finishes just after the page loads.
+    const ageSeconds = (Date.now() - new Date(last.finished_at).getTime()) / 1000;
+    if (ageSeconds > 90) return;
+  } else if (last.run === emailWatch.lastRun) {
+    return;
+  }
+  emailWatch.lastRun = last.run;
+  if (last.error || !(last.imported || last.review)) return;
+  const msg = [last.imported ? plural(last.imported, "new transaction imported", "new transactions imported") : "",
+               last.review ? plural(last.review, "needs review", "need review") : ""].filter(Boolean).join(" · ");
+  toast(msg, "ok", 6000);
+  const { route } = parseHash();
+  if (["dashboard", "transactions"].includes(route) && $("#modal").classList.contains("hidden")) render();
+}
+
+/* ===========================================================================
    Router and navigation
    ======================================================================== */
 
@@ -1354,4 +1560,6 @@ window.addEventListener("hashchange", render);
   buildNav();
   try { await loadCategories(); } catch (e) { toast("Can't reach the server: " + e.message, "error"); }
   render();
+  pollEmail();
+  setInterval(pollEmail, 20000);
 })();

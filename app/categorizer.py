@@ -150,7 +150,7 @@ class AIUnavailable(Exception):
 
 
 SYSTEM_PROMPT = (
-    "You categorize card payments for a university student living in Madrid, Spain. "
+    "You categorize card payments from a personal budget app. Most of them are made in Spain. "
     "You get the merchant text exactly as it appears on a bank or Apple Pay statement. "
     "Pick the single category that best fits what kind of business it is. "
     f"If you can't tell what the business is, answer \"{UNCATEGORIZED}\" rather than guessing."

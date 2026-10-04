@@ -1,3 +1,0 @@
-# Only needed to build Budget.app (./build.sh)
-pyinstaller>=6.10
-pillow>=10.0

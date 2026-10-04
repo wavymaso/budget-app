@@ -7,7 +7,7 @@ from fastapi.staticfiles import StaticFiles
 
 from . import config
 from .db import init_db
-from .routers import budgets, categories, categorize, dashboard, expenses, io
+from .routers import budgets, categories, categorize, dashboard, email, expenses, io
 
 
 @asynccontextmanager
@@ -36,6 +36,7 @@ app.include_router(categorize.router)
 app.include_router(budgets.router)
 app.include_router(dashboard.router)
 app.include_router(io.router)
+app.include_router(email.router)
 
 
 @app.get("/api/status")

@@ -94,22 +94,27 @@ def row_hash(day: str, amount_cents: int, description: str, occurrence: int) -> 
 
 
 def find_duplicate(conn: sqlite3.Connection, day: str, amount_cents: int, merchant: str,
-                   import_hash: str) -> dict | None:
+                   import_hash: str, exclude_sources: tuple[str, ...] = ()) -> dict | None:
     """An exact earlier import, or an expense with the same amount, a similar merchant, within a day."""
     row = conn.execute("SELECT id, merchant_raw, date FROM expenses WHERE import_hash = ?", (import_hash,)).fetchone()
     if row:
         return {"id": row["id"], "reason": "already imported", "merchant": row["merchant_raw"], "date": row["date"]}
     d = date.fromisoformat(day)
     norm = normalize_merchant(merchant)
+    skip = ",".join("?" * len(exclude_sources))
     candidates = conn.execute(
-        "SELECT id, merchant_raw, merchant_norm, date FROM expenses "
-        "WHERE amount_cents = ? AND date BETWEEN ? AND ?",
-        (amount_cents, (d - timedelta(days=1)).isoformat(), (d + timedelta(days=1)).isoformat()),
+        "SELECT id, merchant_raw, merchant_norm, date, source FROM expenses "
+        "WHERE amount_cents = ? AND date BETWEEN ? AND ?"
+        + (f" AND source NOT IN ({skip})" if exclude_sources else ""),
+        (amount_cents, (d - timedelta(days=1)).isoformat(), (d + timedelta(days=1)).isoformat(),
+         *exclude_sources),
     ).fetchall()
     for c in candidates:
         if (c["merchant_norm"] == norm or norm in c["merchant_norm"] or c["merchant_norm"] in norm
                 or fuzz.token_set_ratio(norm, c["merchant_norm"]) >= 80):
-            return {"id": c["id"], "reason": "same amount and merchant", "merchant": c["merchant_raw"], "date": c["date"]}
+            reason = {"email": "already logged from your iPhone", "csv": "already in a bank import"}.get(
+                c["source"], "same amount and merchant")
+            return {"id": c["id"], "reason": reason, "merchant": c["merchant_raw"], "date": c["date"]}
     return None
 
 

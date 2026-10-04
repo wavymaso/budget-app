@@ -12,7 +12,7 @@ if [[ ! -x .venv/bin/python ]]; then
   python3 -m venv .venv
 fi
 echo "==> Installing dependencies"
-.venv/bin/pip install -q -r requirements.txt -r requirements-build.txt
+.venv/bin/pip install -q -r requirements.txt -r requirements-dev.txt
 
 if [[ ! -f macos/Budget.icns ]]; then
   echo "==> Drawing the icon"

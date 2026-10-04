@@ -1,25 +1,46 @@
 # Budget
 
-A personal budget tracker that runs as a normal Mac app, with its own window and a Dock icon, and you can open it from Spotlight or Launchpad. You log card spending (by hand, from a bank CSV, or from an iPhone Shortcut). It sorts each expense into a category and shows how you're doing against your weekly and monthly limits.
+A personal budget tracker for your Mac. It's a real app with its own window and a Dock icon, and you open it from Spotlight or Launchpad. Log card spending by hand, from a bank CSV, or automatically from Apple Pay on your iPhone. Budget sorts every expense into a category and shows how you're doing against weekly and monthly limits.
 
-Everything stays on your Mac. The one exception is optional: if you add a Claude API key, the names of merchants the app doesn't recognise are sent to Claude so it can guess a category.
+Your data stays on your Mac. There's no account, no cloud and no tracking.
+
+<p align="center">
+  <img src="docs/dashboard.png" alt="Dashboard: this week and this month against their limits, spending by category, limits per category and daily spending" width="720">
+  &nbsp;
+  <img src="docs/add-phone.png" alt="Adding an expense: the category is suggested as you type the merchant" width="200">
+</p>
+
+**What it does**
+
+- **Quick entry.** Type the amount and merchant, and the category is suggested as you type. It learns from every correction, and recognises common Spanish merchants (Mercadona, Glovo, Metro, Renfe, Zara…) out of the box.
+- **Budgets.** Weekly and monthly limits overall and per category, with green/amber/red progress bars, "€X left this week" and "€Y per day".
+- **Dashboard.** Spending by category, day by day and month by month, plus your top merchants. Step back through earlier weeks and months.
+- **Imports.** Bank statement CSVs, with column mapping and duplicate detection, and Apple Pay payments emailed by an iPhone Shortcut and read from Gmail.
+- **Optional AI.** With a Claude API key, merchants it doesn't recognise get a suggested category.
+- Euros, weeks start on Monday, dates as DD/MM/YYYY.
 
 ---
 
-## 1. Install the app
+## 1. Install
 
-You need **Python 3.10 or newer** to build it (check with `python3 --version`). After that, the app contains everything it needs.
+**You need:**
+- A Mac with macOS 12 or newer.
+- Python 3.10 or newer. Check with `python3 --version`. If it's missing, get it from [python.org](https://www.python.org/downloads/macos/).
+- Git, which macOS offers to install the first time you type `git`.
 
 ```bash
-cd ~/budget-app
+git clone https://github.com/wavymaso/budget-app.git
+cd budget-app
 ./build.sh --install
 ```
 
-This sets up a virtualenv, installs the dependencies, runs the tests, builds `dist/Budget.app` and copies it to **/Applications**. Open **Budget** from Spotlight (`Cmd+Space`, type "Budget"), Launchpad, or the Applications folder. You can keep it in the Dock: right-click the icon, then **Options → Keep in Dock**.
+This sets up a Python environment, installs the dependencies, runs the tests, builds **Budget.app** and copies it to **/Applications**. The first run takes a few minutes. Then open **Budget** from Spotlight (`Cmd+Space`, type "Budget"), Launchpad, or the Applications folder. To keep it in the Dock, right-click its icon and choose **Options → Keep in Dock**.
 
-If you'd rather install it by hand, run plain `./build.sh` and drag `dist/Budget.app` into Applications.
+Prefer to install it yourself? Run `./build.sh` and drag `dist/Budget.app` into Applications.
 
-When you open Budget, it starts its server on a free port on `127.0.0.1` and shows the window. Closing the window or pressing `Cmd+Q` shuts everything down. The interface, including Tailwind and Chart.js, is bundled inside the app, so it works offline.
+When you open Budget, it starts a small private server on your Mac (on `127.0.0.1`, not reachable from the network) and shows the window. Closing the window or pressing `Cmd+Q` shuts everything down. The interface is bundled inside the app, so it works offline.
+
+> **Why build it yourself instead of downloading an app?** The app isn't signed with an Apple developer certificate, so macOS would block a downloaded copy. Building it on your own Mac avoids that, and it also builds for your Mac's processor (Apple Silicon or Intel).
 
 ## 2. Where your data lives
 
@@ -27,37 +48,35 @@ When you open Budget, it starts its server on a free port on `127.0.0.1` and sho
 ~/Library/Application Support/Budget/
   budget.db       your expenses, categories, limits and learned merchants
   backups/        copies made with "Back up now"
-  .env            optional settings (sections 6 and 7)
+  .env            optional settings (sections 6 and 8)
 ```
 
-This folder is outside the project and outside the app, so **rebuilding, reinstalling or deleting Budget.app never touches your data**. **Settings → Your data → Show in Finder** opens it.
-
-**Moving from the old location:** the first time Budget starts and finds no database in that folder, it copies `data/budget.db` from the project (and `data/backups/`) over. The old files are left where they were. Once you've checked everything is in the app, you can delete the project's `data/` folder.
+The data lives outside the app, so **updating, rebuilding or deleting Budget.app never touches your data**. **Settings → Your data → Show in Finder** opens this folder.
 
 The app writes a log to `~/Library/Logs/Budget/budget.log`. Look there if it won't start.
 
-## Rebuilding after you change the code
+(Very early versions kept the database in the project's `data/` folder. If one is there, Budget copies it over the first time it starts and leaves the original alone.)
+
+## Updating
 
 ```bash
-cd ~/budget-app
+cd budget-app
+git pull
 ./build.sh --install
 ```
 
-That's the whole loop. If Budget is open, the script quits it, replaces `/Applications/Budget.app` with the new build, and you open it again. Your data stays in Application Support, so nothing is lost.
+If Budget is open, the script quits it, replaces the app in /Applications, and you open it again. The script stops if any test fails, so a broken version never gets installed. The version shown in Finder's **Get Info** comes from the `VERSION` file.
 
-`./build.sh` stops if any test fails, so a broken change never gets installed.
-
-The version shown in Finder's **Get Info** comes from the `VERSION` file. To change the icon, edit `macos/make_icon.py`, run `.venv/bin/python macos/make_icon.py`, and rebuild.
-
-### Running from source while developing
+### Changing the code
 
 ```bash
 python3 run.py            # opens the app window straight from the code (no build needed)
 python3 run.py --debug    # same, with the web inspector (right-click > Inspect Element)
 python3 run.py --browser  # no window: serve at http://localhost:8000 for a normal browser
+.venv/bin/python -m pytest   # run the tests
 ```
 
-`run.py` uses the same data folder as the installed app. Don't run both at the same time.
+`run.py` uses the same data folder as the installed app, so don't run both at the same time. When you're happy with a change, `./build.sh --install` puts it in the real app. To change the icon, edit `macos/make_icon.py`, run `.venv/bin/python macos/make_icon.py`, and rebuild.
 
 ## 3. Using it
 
@@ -108,7 +127,7 @@ Rows the app can't read, like an impossible date, are listed and skipped.
 Create the settings file from the template:
 
 ```bash
-cp ~/budget-app/.env.example ~/Library/"Application Support"/Budget/.env
+cp .env.example ~/Library/"Application Support"/Budget/.env   # run this inside the budget-app folder
 open -e ~/Library/"Application Support"/Budget/.env
 ```
 
@@ -120,7 +139,94 @@ ANTHROPIC_API_KEY=sk-ant-...
 
 Then quit and reopen Budget. Merchants that none of the other layers recognise are sent to Claude (model `claude-opus-5-5`) and it picks one of your categories. Only the merchant name is sent, never amounts or dates. Each answer is cached, so the same merchant is never sent twice. If the key is missing, wrong, or you're offline, the app simply marks the expense Uncategorized.
 
-## 7. Quick-add from your iPhone (Shortcuts)
+## 7. Apple Pay payments from your iPhone, via Gmail
+
+Your iPhone Shortcut emails each Apple Pay payment to yourself. Budget reads those emails from Gmail and adds them as expenses automatically: when it opens, then every 5 minutes while it's open. The emails look like this:
+
+```
+To:      your.address+budget@gmail.com
+Subject: BUDGET
+Body:    2026-10-04T13:22:05+02:00;MERCADONA;12,45 €;EUR
+```
+
+Only that line is read. Anything else in the email, like "Sent from my iPhone", is ignored. Budget opens Gmail **read-only**, so it never marks, moves or deletes an email.
+
+### Step 1: the iPhone Shortcut
+
+This makes your iPhone email every Apple Pay payment to you automatically. On the iPhone, the **Mail** app must be signed in to your Gmail account.
+
+1. Open **Shortcuts**, go to **Automation**, tap **+**, choose **Transaction**, pick your card(s), and set it to **Run Immediately**. Then tap **Next → New Blank Automation**.
+2. Add **Format Date**: date *Current Date*, format **ISO 8601**, **Include Time** on.
+3. Add **Text** containing exactly this, inserting the variables with the variable bar:
+   `Formatted Date;Merchant;Amount;EUR`
+   *Merchant* and *Amount* come from *Shortcut Input* (the transaction).
+4. Add **Send Email**:
+   - **To:** `your.address+budget@gmail.com`, your own address with `+budget` added
+   - **Subject:** `BUDGET`
+   - **Body:** the *Text* from step 3
+   - Under the arrow, turn **Show Compose Sheet** off, so it sends without asking.
+
+Pay for something with Apple Pay, and an email like the one above should arrive in Gmail.
+
+### Step 2: create a Gmail app password
+
+Budget signs in to Gmail with an *app password*, a separate 16-letter password just for this app, not your normal Google password.
+
+1. Turn on **2-Step Verification** at https://myaccount.google.com/security, if it isn't on already. App passwords require it.
+2. Go to https://myaccount.google.com/apppasswords.
+3. Type the name `Budget` and click **Create**.
+4. Copy the 16-letter password. Google shows it with spaces (`abcd efgh ijkl mnop`); you can paste it with or without them.
+
+You can revoke it on the same page at any time; Budget then simply stops importing.
+
+### Step 3: make a Gmail filter and label
+
+So the emails don't clutter your inbox:
+
+1. In Gmail on the web, click the **search options** icon (the sliders) at the right of the search bar.
+2. **To:** `your.address+budget@gmail.com`, **Subject:** `BUDGET`
+3. Click **Create filter**, then tick:
+   - **Skip the Inbox (Archive it)**
+   - **Apply the label:** choose **New label…** and name it `Budget`
+   - **Never send it to Spam**
+4. Click **Create filter**.
+
+The `+budget` part still arrives in your own inbox; Gmail ignores everything after the `+`. That's what makes the filter easy.
+
+IMAP has to be on. On most accounts it always is; if Gmail's **Settings → See all settings → Forwarding and POP/IMAP** shows an IMAP switch, make sure it's enabled.
+
+### Step 4: connect Budget
+
+1. Open Budget and go to **Settings → Gmail import**.
+2. Enter your Gmail address and the app password, and leave the label as `Budget`.
+3. Click **Test connection**. It tells you plainly whether it worked, and if not, why:
+
+   | Message | What to do |
+   |---|---|
+   | *Signed in as … The "Budget" label has N emails…* | All good. |
+   | *Gmail rejected the address or app password…* | Check the address; create a new app password (not your normal password). |
+   | *Signed in, but there's no Gmail label called "Budget"* | The label name must match exactly, including capital letters. |
+   | *IMAP is turned off…* | Turn IMAP on (step 3). |
+   | *Couldn't reach imap.gmail.com* | The Mac is offline. |
+
+4. Tick **Check automatically…** and click **Save**.
+
+The app password is stored in the **macOS Keychain** (as "Budget – Gmail app password"), never in a file or in the database. After you rebuild the app, macOS may ask once whether Budget may use it. Click **Always Allow**. **Forget saved password** removes it from the Keychain.
+
+### What happens to each email
+
+- **Imported.** The expense is added and categorized like any other. A notice says "*N new transactions imported*".
+- **Needs review.** The email shows up at the top of the **Import** page, and the dashboard and the Import tab show a badge. This happens when the merchant is blank, the amount is 0 €, the amount is in another currency, there's no transaction line at all, or **it looks like an expense you already have**: the same amount, a similar merchant, within a day, from a bank CSV or typed by hand. Fix the fields and click **Add expense**, or **Dismiss** it.
+- **Refused.** The email wasn't sent from your own Gmail address, or Gmail flagged its sender as forged. It's never imported.
+
+Each email is remembered by its Message-ID, so nothing is ever imported twice, even if you click **Check now** repeatedly or Gmail renumbers the label. It works the other way too: when you later import a bank CSV, payments that already came in by email are flagged as duplicates in the preview.
+
+**Your Shortcut must send from the same Gmail account** you entered in Budget. The iPhone's Mail app must use that account as the sender. Otherwise the emails are refused.
+
+## 8. Quick-add API (alternative to email)
+
+If your Mac is on the same Wi-Fi as your phone, a Shortcut can also add expenses directly, without email.
+
 
 ### Set a token and turn on phone access
 
@@ -189,7 +295,7 @@ Add it to your Home Screen, or trigger it from an Apple Pay automation (**Automa
 
 Your Mac must be awake, with Budget open, for the Shortcut to work.
 
-## 8. Back up and restore your data
+## 9. Back up and restore your data
 
 - **Back up:** go to **Settings → Your data → Back up now**. This saves a timestamped copy such as `backups/budget-2026-10-04_17-49-49.db` next to the database. It's safe to do while the app is open. For extra safety, copy the whole `~/Library/Application Support/Budget` folder to iCloud Drive or a USB stick now and then.
 - **Restore:** quit Budget. In `~/Library/Application Support/Budget`, move `budget.db` aside and delete `budget.db-wal` and `budget.db-shm` if they exist. Copy the backup you want to `budget.db` and open Budget again.
@@ -197,13 +303,13 @@ Your Mac must be awake, with Budget open, for the Shortcut to work.
 
 Your data and settings are never inside the project folder, so they can't end up on GitHub. `data/`, `.env`, `build/` and `dist/` are also in `.gitignore`.
 
-## 9. Tests
+## 10. Tests
 
 ```bash
 .venv/bin/python -m pytest
 ```
 
-The tests cover merchant clean-up, every categorization layer (including corrections beating rules, and AI caching and failure), budget maths (Monday weeks, month ends and leap years, the 75%/100% colour thresholds, € left and € per day), the quick-add API (including its token check and LAN restriction), moving data from the old `data/` folder, and the native CSV export. They use temporary folders and never touch your real data.
+The tests cover merchant clean-up, every categorization layer (including corrections beating rules, and AI caching and failure), budget maths (Monday weeks, month ends and leap years, the 75%/100% colour thresholds, € left and € per day), the Gmail import (parsing the email line, refusing other senders, never importing twice, duplicates against bank CSVs, the review list, read-only IMAP access, and the app password never reaching the database), the quick-add API (including its token check and LAN restriction), moving data from the old `data/` folder, and the native CSV export. They use temporary folders and never touch your real data.
 
 ## Project layout
 
@@ -221,6 +327,8 @@ app/
   categorizer.py       learned → similar → keyword → AI
   budgets.py           week/month maths, limits, € left / per day
   importer.py          CSV reading, date/amount parsing, duplicate checks
+  gmail.py             reading Apple Pay emails over IMAP; Keychain for the app password
+  email_sync.py        checks Gmail on launch and every 5 minutes; Needs review
   routers/             the JSON API (expenses, categories, budgets, dashboard, import/export)
 static/                the interface (HTML + JS; Tailwind and Chart.js in static/vendor)
 macos/
