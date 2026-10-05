@@ -6,50 +6,19 @@ Shutdown: closing the window (or Cmd+Q) returns from webview.start(), then the
           server is told to exit and we wait for it.
 """
 import logging
-import socket
 import subprocess
 import sys
 import threading
-import time
 from pathlib import Path
 
-import uvicorn
 import webview
 
-from . import config
-from .db import connect, init_db, migrate_legacy_data
+from . import config, server as server_mod
+from .db import connect, get_setting, init_db, migrate_legacy_data
 from .email_sync import Poller
+from .server import BackgroundServer, PhoneAccess
 
 log = logging.getLogger("budget")
-
-
-class BackgroundServer:
-    def __init__(self, host: str, port: int):
-        # Bind first so we know the port (0 = let macOS pick a free one).
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.sock.bind((host, port))
-        self.port = self.sock.getsockname()[1]
-        from .main import app
-        self.server = uvicorn.Server(uvicorn.Config(
-            app, log_config=None, log_level="warning",
-            loop="asyncio", http="h11", ws="none", lifespan="on",
-        ))
-        self.thread = threading.Thread(target=self.server.run, kwargs={"sockets": [self.sock]},
-                                       name="budget-server", daemon=True)
-
-    def start(self, timeout: float = 20) -> None:
-        self.thread.start()
-        deadline = time.monotonic() + timeout
-        while not self.server.started:
-            if not self.thread.is_alive() or time.monotonic() > deadline:
-                raise RuntimeError("The Budget server didn't start; see the log for details.")
-            time.sleep(0.02)
-
-    def stop(self) -> None:
-        self.server.should_exit = True
-        self.thread.join(timeout=5)
-        self.sock.close()
 
 
 class DesktopApi:
@@ -114,12 +83,24 @@ def main(lan: bool | None = None, port: int | None = None, debug: bool = False) 
     migrate_legacy_data()
     init_db()
 
-    lan = config.lan_enabled() if lan is None else lan
-    host = "0.0.0.0" if lan else "127.0.0.1"
-    port = (config.lan_port() if lan else 0) if port is None else port
-    server = BackgroundServer(host, port)
+    # The window always talks to a private server on 127.0.0.1.
+    server = BackgroundServer("127.0.0.1", 0)
     server.start()
-    log.info("Budget started on port %s (lan=%s), data in %s", server.port, lan, config.DATA_DIR)
+    log.info("Budget started on port %s, data in %s", server.port, config.DATA_DIR)
+
+    # Phone access: a second server on the Wi-Fi, switched on in Settings
+    # (or for this run with `run.py --lan` / BUDGET_LAN=1 in .env).
+    phone = server_mod.phone_access = PhoneAccess()
+    conn = connect()
+    try:
+        saved = {"enabled": False, "port": config.lan_port(), **(get_setting(conn, "phone_access") or {})}
+    finally:
+        conn.close()
+    lan = config.lan_enabled() if lan is None else lan
+    if saved["enabled"] or lan:
+        phone.apply(True, port or saved["port"])
+        log.info("Phone access on port %s%s", phone.port, f" (error: {phone.error})" if phone.error else "")
+
     poller = Poller()   # checks Gmail now, then every few minutes (if set up)
     poller.start()
 
@@ -138,6 +119,7 @@ def main(lan: bool | None = None, port: int | None = None, debug: bool = False) 
             stopped.set()
             log.info("Window closed, shutting down")
             poller.stop()
+            phone.stop()
             server.stop()
             log.info("Server stopped")
 

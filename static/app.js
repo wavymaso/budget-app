@@ -8,6 +8,7 @@ const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 
 const state = {
+  local: true,        // false when opened from a phone over Wi-Fi
   categories: [],
   charts: [],
   renderToken: 0,
@@ -79,6 +80,7 @@ async function api(path, { method = "GET", body } = {}) {
     opts.body = JSON.stringify(body);
   }
   const res = await fetch(path, opts);
+  if (res.status === 401 && !state.local) { location.replace("/login"); throw new Error("Please sign in"); }
   if (!res.ok) {
     let msg = `Request failed (${res.status})`;
     try {
@@ -563,8 +565,10 @@ async function viewSettings(root) {
   root.innerHTML = `
     <h1 class="text-xl font-semibold mb-4">Settings</h1>
     <div class="space-y-6">
+      <section data-this-phone class="hidden"></section>
       <section data-budgets></section>
       <section data-gmail-settings></section>
+      <section data-phone-settings></section>
       <section class="card p-5">
         <div class="flex items-baseline justify-between mb-1">
           <h2 class="font-semibold">Categories</h2>
@@ -599,7 +603,7 @@ async function viewSettings(root) {
     <p>${dot(status.quickadd_enabled)}Quick-add API for iPhone Shortcuts: <b>${status.quickadd_enabled ? "on" : "off"}</b>
       <span class="text-slate-400">${status.quickadd_enabled ? "" : "(set QUICKADD_TOKEN)"}</span></p>
     <p>${dot(status.lan_enabled)}Reachable from your phone on Wi-Fi: <b>${status.lan_enabled ? "yes" : "no"}</b>
-      <span class="text-slate-400">${status.lan_enabled ? "(quick-add only)" : "(set BUDGET_LAN=1)"}</span></p>
+      <span class="text-slate-400">${status.lan_enabled ? "" : "(see Phone access)"}</span></p>
     <p class="text-xs text-slate-400 pt-1">Settings go in a <code class="bg-slate-100 rounded px-1">.env</code> file in
       <code class="bg-slate-100 rounded px-1 break-all">${esc(status.data_dir.replace(/^\/Users\/[^/]+/, "~"))}</code>.
       Quit and reopen Budget after changing it. See the README for details.</p>`;
@@ -741,7 +745,14 @@ async function viewSettings(root) {
 
   // Filled in by later phases.
   var renderBudgets = await settingsBudgets($("[data-budgets]", root));
-  await settingsGmail($("[data-gmail-settings]", root));
+  if (state.local) {
+    await settingsGmail($("[data-gmail-settings]", root));
+    await settingsPhone($("[data-phone-settings]", root));
+  } else {
+    const me = $("[data-this-phone]", root);
+    me.classList.remove("hidden");
+    settingsThisPhone(me);
+  }
   await settingsData($("[data-data]", root));
 }
 
@@ -1505,6 +1516,100 @@ async function pollEmail() {
 }
 
 /* ===========================================================================
+   Phone access (Settings, Mac only) and signing out on a phone
+   ======================================================================== */
+
+/** SQLite's datetime('now') is UTC ("2026-10-05 14:43:00"); show it in local time. */
+function fmtUtc(sqliteUtc) {
+  const d = new Date(sqliteUtc.replace(" ", "T") + "Z");
+  return `${fmtDate(isoOf(d))} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function deviceName(ua) {
+  ua = ua || "";
+  const kind = /iPhone/.test(ua) ? "iPhone" : /iPad/.test(ua) ? "iPad" : /Android/.test(ua) ? "Android phone"
+    : /Macintosh/.test(ua) ? "Mac" : /Windows/.test(ua) ? "Windows PC" : "Device";
+  const browser = /CriOS|Chrome/.test(ua) ? "Chrome" : /FxiOS|Firefox/.test(ua) ? "Firefox" : /Safari/.test(ua) ? "Safari" : "";
+  return browser ? `${kind} · ${browser}` : kind;
+}
+
+async function settingsPhone(el) {
+  el.className = "card p-5";
+  let st = await api("/api/phone");
+  function render() {
+    el.innerHTML = `
+      <div class="flex items-baseline justify-between gap-2 flex-wrap mb-1">
+        <h2 class="font-semibold">Phone access</h2>
+        <span class="text-xs ${st.running ? "text-emerald-700" : "text-slate-400"}">${st.running ? "● On" : "Off"}</span>
+      </div>
+      <p class="text-sm text-slate-500 mb-4">Open Budget in Safari on your phone while it's on the same Wi-Fi as this Mac and Budget is open.
+        Phones sign in with a password; they can use everything except these Mac-only settings.</p>
+      ${st.available ? "" : `<p class="text-sm text-amber-700 mb-3">Not available in browser mode. Open the Budget app (or <code>python3 run.py</code>) to use it.</p>`}
+      <form data-phone class="space-y-3" autocomplete="off">
+        <div class="grid sm:grid-cols-3 gap-3">
+          <div class="sm:col-span-2"><label class="label">${st.has_password ? "Change password" : "Password for your phone"}</label>
+            <input name="password" type="password" autocomplete="new-password" class="input"
+                   placeholder="${st.has_password ? "Saved — type to change (signs phones out)" : `At least ${st.min_password_length} characters`}"></div>
+          <div><label class="label">Port</label><input name="port" class="input tabular" inputmode="numeric" value="${st.port}"></div>
+        </div>
+        <label class="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
+          <input type="checkbox" name="enabled" class="rounded border-slate-300" ${st.enabled ? "checked" : ""} ${st.available ? "" : "disabled"}>
+          Let phones on this Wi-Fi open Budget
+        </label>
+        <button class="btn btn-primary">Save</button>
+      </form>
+      ${st.error ? `<div class="mt-3 rounded-lg bg-red-50 text-red-800 px-3 py-2 text-sm">✕ ${esc(st.error)}</div>` : ""}
+      ${st.running ? `
+        <div class="mt-4 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+          <p class="mb-1">On your phone, open Safari and go to:</p>
+          ${st.urls.map((u) => `<p class="font-mono text-base font-semibold select-all break-all">${esc(u)}</p>`).join("")}
+          <p class="text-xs text-emerald-800 mt-2">The <b>.local</b> address keeps working when your Mac's IP changes. Then tap Share → <b>Add to Home Screen</b> for an app icon.</p>
+        </div>` : ""}
+      <div class="mt-4">
+        <div class="flex items-baseline justify-between">
+          <h3 class="text-sm font-medium text-slate-700">Signed-in devices</h3>
+          ${st.sessions.length ? `<button data-signout-all class="text-xs text-slate-500 hover:text-red-600">Sign out all</button>` : ""}
+        </div>
+        ${st.sessions.length ? `<ul class="mt-1 text-sm divide-y divide-slate-100">${st.sessions.map((x) => `
+          <li class="py-1.5 flex justify-between gap-2"><span>${esc(deviceName(x.user_agent))} <span class="text-slate-400">${esc(x.ip || "")}</span></span>
+            <span class="text-xs text-slate-400">last used ${fmtUtc(x.last_seen)}</span></li>`).join("")}</ul>`
+        : `<p class="text-xs text-slate-400 mt-1">None.</p>`}
+      </div>
+      <p class="text-xs text-slate-400 mt-4">Use this on Wi-Fi you trust, like home. The connection isn't encrypted (it's plain http on your local network),
+        so on shared Wi-Fi such as university or a café, switch it off.</p>`;
+    const form = $("[data-phone]", el);
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const port = Number(form.port.value);
+      if (!(port >= 1024 && port <= 65535)) return toast("Port must be between 1024 and 65535", "error");
+      try {
+        st = await api("/api/phone", { method: "PUT", body: { enabled: form.enabled.checked, port, password: form.password.value || null } });
+        render();
+        toast(st.error ? "Saved, but phone access couldn't start" : st.running ? "Phone access is on" : "Saved", st.error ? "error" : "ok");
+      } catch (err) { toast(err.message, "error"); }
+    });
+    $("[data-signout-all]", el)?.addEventListener("click", async () => {
+      st = await api("/api/phone/sign-out-all", { method: "POST" });
+      render();
+      toast("All phones signed out");
+    });
+  }
+  render();
+}
+
+function settingsThisPhone(el) {
+  el.className = "card p-5";
+  el.innerHTML = `
+    <h2 class="font-semibold mb-1">This device</h2>
+    <p class="text-sm text-slate-500 mb-3">You're signed in over Wi-Fi. Gmail and phone access settings can only be changed on the Mac.</p>
+    <button data-signout class="btn btn-secondary">Sign out</button>`;
+  $("[data-signout]", el).addEventListener("click", async () => {
+    await api("/api/auth/logout", { method: "POST" });
+    location.replace("/login");
+  });
+}
+
+/* ===========================================================================
    Router and navigation
    ======================================================================== */
 
@@ -1557,6 +1662,7 @@ async function render() {
 
 window.addEventListener("hashchange", render);
 (async function start() {
+  try { state.local = (await (await fetch("/api/auth/me")).json()).local; } catch { /* assume local */ }
   buildNav();
   try { await loadCategories(); } catch (e) { toast("Can't reach the server: " + e.message, "error"); }
   render();

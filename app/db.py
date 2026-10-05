@@ -87,6 +87,15 @@ CREATE TABLE IF NOT EXISTS email_messages (
 );
 CREATE INDEX IF NOT EXISTS idx_email_status ON email_messages(status);
 
+-- Phones signed in over Wi-Fi (only a hash of each session token is stored).
+CREATE TABLE IF NOT EXISTS sessions (
+    token_hash  TEXT PRIMARY KEY,
+    user_agent  TEXT,
+    ip          TEXT,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    last_seen   TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL

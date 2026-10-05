@@ -53,11 +53,10 @@ def test_quick_add_validates(client):
     assert r.status_code == 422
 
 
-def test_other_devices_only_reach_quick_add(tmp_path, monkeypatch):
+def test_phones_can_quick_add_without_signing_in(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "DB_PATH", tmp_path / "lan.db")
     monkeypatch.setenv("QUICKADD_TOKEN", "s3cret")
     with TestClient(main.app, client=("192.168.1.50", 50000)) as phone:
-        assert phone.get("/").status_code == 403
-        assert phone.get("/api/expenses").status_code == 403
+        assert phone.get("/api/expenses").status_code == 401     # the rest needs a sign-in
         r = phone.post("/api/expenses/quick", headers=AUTH, json={"amount": "2", "merchant": "Metro"})
         assert r.status_code == 201

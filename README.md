@@ -12,6 +12,7 @@ Your data stays on your Mac. There's no account, no cloud and no tracking.
 
 **What it does**
 
+- **On your phone too.** Use the whole app in Safari on your home Wi-Fi, protected by a password.
 - **Quick entry.** Type the amount and merchant, and the category is suggested as you type. It learns from every correction, and recognises common Spanish merchants (Mercadona, Glovo, Metro, Renfe, Zara…) out of the box.
 - **Budgets.** Weekly and monthly limits overall and per category, with green/amber/red progress bars, "€X left this week" and "€Y per day".
 - **Dashboard.** Spending by category, day by day and month by month, plus your top merchants. Step back through earlier weeks and months.
@@ -38,7 +39,7 @@ This sets up a Python environment, installs the dependencies, runs the tests, bu
 
 Prefer to install it yourself? Run `./build.sh` and drag `dist/Budget.app` into Applications.
 
-When you open Budget, it starts a small private server on your Mac (on `127.0.0.1`, not reachable from the network) and shows the window. Closing the window or pressing `Cmd+Q` shuts everything down. The interface is bundled inside the app, so it works offline.
+When you open Budget, it starts a small private server on your Mac (on `127.0.0.1`, not reachable from the network) and shows the window. Phones can only reach it if you turn on phone access (section 8). Closing the window or pressing `Cmd+Q` shuts everything down. The interface is bundled inside the app, so it works offline.
 
 > **Why build it yourself instead of downloading an app?** The app isn't signed with an Apple developer certificate, so macOS would block a downloaded copy. Building it on your own Mac avoids that, and it also builds for your Mac's processor (Apple Silicon or Intel).
 
@@ -223,34 +224,59 @@ Each email is remembered by its Message-ID, so nothing is ever imported twice, e
 
 **Your Shortcut must send from the same Gmail account** you entered in Budget. The iPhone's Mail app must use that account as the sender. Otherwise the emails are refused.
 
-## 8. Quick-add API (alternative to email)
+## 8. Using Budget on your phone (Wi-Fi)
 
-If your Mac is on the same Wi-Fi as your phone, a Shortcut can also add expenses directly, without email.
+While Budget is open on your Mac, you can use the whole app on your phone in Safari, on the same Wi-Fi: the dashboard, adding expenses, transactions, everything.
 
+### Turn it on (on the Mac)
 
-### Set a token and turn on phone access
+1. In Budget, go to **Settings → Phone access**.
+2. Choose a password for your phone (at least 6 characters).
+3. Tick **Let phones on this Wi-Fi open Budget** and click **Save**.
+4. The section turns green and shows the address to open, for example:
+   ```
+   http://My-MacBook.local:8000
+   http://192.168.1.23:8000
+   ```
+   The `.local` address keeps working when your Mac's IP address changes.
 
-Create a secret token:
+Phone access stays on the next time you open Budget. It starts and stops straight away; no restart needed.
+
+If the macOS firewall is on (**System Settings → Network → Firewall**), macOS asks once whether Budget may accept incoming connections. Click **Allow**.
+
+### On your phone
+
+1. Connect to the same Wi-Fi as the Mac, open **Safari** and type the address.
+2. Sign in with the password. You stay signed in for 30 days.
+3. Optional: tap **Share → Add to Home Screen** to get a Budget icon that opens it like an app.
+
+Budget must be open on your Mac for this to work. The Mac does the work; the phone only shows it.
+
+### How it's protected
+
+- **Phones must sign in.** The Mac's own window never asks. Five wrong passwords lock that device out for 10 minutes.
+- **Mac-only settings.** A signed-in phone can do everything except change phone access, the password or the Gmail settings. Those only work on the Mac.
+- **Signing out.** **Settings → Phone access** lists every signed-in device, with **Sign out all**. Changing the password signs every phone out too. A phone can sign itself out under **Settings → This device**.
+- **What's stored.** The password is saved only as a salted hash, never readable. The phone gets a random sign-in cookie, of which only a hash is stored.
+- **Not encrypted.** The connection is plain `http` on your local network. That's fine at home, but **switch phone access off on shared Wi-Fi** (university, cafés, hotels), where other people on the network could in principle read the traffic.
+
+For a single run from source, `python3 run.py --lan` turns phone access on at port 8000 without saving the setting. Setting `BUDGET_LAN=1` in `.env` does the same every time Budget opens.
+
+### Quick-add API (optional)
+
+With phone access on, an iPhone Shortcut can also add an expense directly, without email and without signing in, using a secret token. Create one:
 
 ```bash
 python3 -c "import secrets; print(secrets.token_urlsafe(24))"
 ```
 
-In `~/Library/Application Support/Budget/.env` (see section 6), set:
+and put it in `~/Library/Application Support/Budget/.env` (see section 6):
 
 ```
 QUICKADD_TOKEN=paste-the-token-here
-BUDGET_LAN=1
-BUDGET_PORT=8000
 ```
 
-Quit and reopen Budget. With `BUDGET_LAN=1` it listens on your Wi-Fi at a fixed port (8000) instead of a random local one, so the Shortcut always has the same address. The first time, macOS asks whether Budget can accept incoming network connections. Click **Allow**. The Settings page shows "Reachable from your phone on Wi-Fi: yes".
-
-To find your Mac's address, go to **System Settings → Wi-Fi → Details** for the IP address, or use its local name from **System Settings → General → Sharing → Local hostname** (e.g. `My-MacBook.local`, which doesn't change). The quick-add URL is then `http://My-MacBook.local:8000/api/expenses/quick`.
-
-When running from source, `python3 run.py --lan` does the same and prints the URL.
-
-> **What other devices can reach.** With phone access on, other devices on the Wi-Fi can only call the token-protected quick-add endpoint. The dashboard and your transactions are still only available on your Mac. Even so, turn `BUDGET_LAN` on only if you mostly use trusted networks like home. On public or university Wi-Fi, set it back to `0`.
+Quit and reopen Budget. The quick-add URL is your phone address plus `/api/expenses/quick`, e.g. `http://My-MacBook.local:8000/api/expenses/quick`.
 
 ### The API
 
@@ -266,7 +292,7 @@ When running from source, `python3 run.py --lan` does the same and prints the UR
 
 The reply is the saved expense plus a `message` such as `"Saved 4,50 € at Starbucks · Eating Out"`.
 
-Test it from the Mac (with `BUDGET_LAN=1`, so the port is 8000):
+Test it from the Mac (with phone access on at port 8000):
 
 ```bash
 curl -X POST http://localhost:8000/api/expenses/quick \
@@ -309,7 +335,7 @@ Your data and settings are never inside the project folder, so they can't end up
 .venv/bin/python -m pytest
 ```
 
-The tests cover merchant clean-up, every categorization layer (including corrections beating rules, and AI caching and failure), budget maths (Monday weeks, month ends and leap years, the 75%/100% colour thresholds, € left and € per day), the Gmail import (parsing the email line, refusing other senders, never importing twice, duplicates against bank CSVs, the review list, read-only IMAP access, and the app password never reaching the database), the quick-add API (including its token check and LAN restriction), moving data from the old `data/` folder, and the native CSV export. They use temporary folders and never touch your real data.
+The tests cover merchant clean-up, every categorization layer (including corrections beating rules, and AI caching and failure), budget maths (Monday weeks, month ends and leap years, the 75%/100% colour thresholds, € left and € per day), the Gmail import (parsing the email line, refusing other senders, never importing twice, duplicates against bank CSVs, the review list, read-only IMAP access, and the app password never reaching the database), phone access (signing in, slowing down password guessing, Mac-only settings, hashed passwords and session tokens, starting and stopping the Wi-Fi server), the quick-add API, moving data from the old `data/` folder, and the native CSV export. They use temporary folders and never touch your real data.
 
 ## Project layout
 
@@ -320,7 +346,9 @@ VERSION                app version shown in Finder
 app/
   desktop.py           native window (pywebview) + background server + shutdown
   config.py            paths (Application Support), .env settings
-  main.py              web app setup, LAN restriction
+  main.py              web app setup; who may reach what (Mac vs. phones)
+  auth.py              phone password, sign-in sessions, guessing protection
+  server.py            background servers: the window's and the Wi-Fi one for phones
   db.py                database schema, created automatically; moves old data/
   seed.py              default categories + Spanish merchant keywords
   normalize.py         merchant name clean-up
@@ -330,7 +358,7 @@ app/
   gmail.py             reading Apple Pay emails over IMAP; Keychain for the app password
   email_sync.py        checks Gmail on launch and every 5 minutes; Needs review
   routers/             the JSON API (expenses, categories, budgets, dashboard, import/export)
-static/                the interface (HTML + JS; Tailwind and Chart.js in static/vendor)
+static/                the interface (HTML + JS, login page; Tailwind and Chart.js in static/vendor)
 macos/
   Budget.spec          PyInstaller recipe
   launcher.py          entry point inside the app

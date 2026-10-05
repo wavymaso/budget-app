@@ -1,4 +1,5 @@
-"""Draw the Budget app icon and build macos/Budget.icns (needs Pillow + macOS iconutil).
+"""Draw the Budget app icon: macos/Budget.icns for the Mac app and
+static/apple-touch-icon.png for a phone's home screen (needs Pillow + macOS iconutil).
 
     .venv/bin/python macos/make_icon.py
 """
@@ -61,7 +62,14 @@ def main() -> None:
         icon.resize((px * 2, px * 2), Image.LANCZOS).save(iconset / f"icon_{px}x{px}@2x.png")
     subprocess.run(["iconutil", "-c", "icns", str(iconset), "-o", str(HERE / "Budget.icns")], check=True)
     shutil.rmtree(iconset.parent)
-    print("wrote", HERE / "icon.png", "and", HERE / "Budget.icns")
+
+    # Phones round the corners themselves, so this one is a full square.
+    off = (SIZE - BODY) // 2
+    square = Image.new("RGBA", (BODY, BODY), TOP + (255,))
+    square.alpha_composite(icon.crop((off, off, off + BODY, off + BODY)))
+    touch = HERE.parent / "static" / "apple-touch-icon.png"
+    square.convert("RGB").resize((180, 180), Image.LANCZOS).save(touch, optimize=True)
+    print("wrote", HERE / "icon.png", HERE / "Budget.icns", "and", touch)
 
 
 if __name__ == "__main__":
