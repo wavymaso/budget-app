@@ -44,6 +44,8 @@ class ExpenseIn(BaseModel):
     # Where the chosen category came from, as shown in the form. If you
     # picked or confirmed it yourself, send "manual".
     category_source: str | None = None
+    # Add it again on the same day every month (only when creating an expense).
+    repeat_monthly: bool = False
 
     @field_validator("merchant")
     @classmethod

@@ -14,6 +14,7 @@ from pathlib import Path
 import webview
 
 from . import config, server as server_mod
+from .backups import auto_backup
 from .db import connect, get_setting, init_db, migrate_legacy_data
 from .email_sync import Poller
 from .server import BackgroundServer, PhoneAccess
@@ -82,6 +83,10 @@ def main(lan: bool | None = None, port: int | None = None, debug: bool = False) 
     setup_logging()
     migrate_legacy_data()
     init_db()
+    try:
+        auto_backup()
+    except Exception:   # a failed backup must never stop the app from opening
+        log.exception("Automatic backup failed")
 
     # The window always talks to a private server on 127.0.0.1.
     server = BackgroundServer("127.0.0.1", 0)

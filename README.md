@@ -16,7 +16,9 @@ Your data stays on your Mac. There's no account, no cloud and no tracking.
 - **Quick entry.** Type the amount and merchant, and the category is suggested as you type. It learns from every correction, and recognises common Spanish merchants (Mercadona, Glovo, Metro, Renfe, Zara…) out of the box.
 - **Budgets.** Weekly and monthly limits overall and per category, with green/amber/red progress bars, "€X left this week" and "€Y per day".
 - **One clear number.** Home shows what's left to spend this month, how much a day that is, and whether you're ahead of or behind plan. Category bars and recent expenses sit underneath, and charts are one tap away.
-- **Themes.** Light, Dark, Sand, Ocean and Lavender, or Automatic to follow your Mac or iPhone.
+- **Monthly bills.** Mark Spotify, the gym or rent as monthly once, and they're added by themselves every month.
+- **Looks after itself.** A backup every day, a short look back at last month, and a heads-up if your iPhone Shortcut goes quiet.
+- **Themes.** Light, Dark, Sand, Ocean, Lavender, Rose and Noir, or Automatic to follow your Mac or iPhone.
 - **Imports.** Bank statement CSVs, with column mapping and duplicate detection, and Apple Pay payments emailed by an iPhone Shortcut and read from Gmail.
 - **Optional AI.** With a Claude API key, merchants it doesn't recognise get a suggested category.
 - Euros, weeks start on Monday, dates as DD/MM/YYYY.
@@ -89,7 +91,7 @@ python3 run.py --browser  # no window: serve at http://localhost:8000 for a norm
 | **Transactions** | Everything you've spent, grouped by day with a total for each day. Search at the top, and **Filters** for category, dates and order. Tap a row to edit or delete it (deleting can be undone). **Import** brings in a bank CSV (section 5). |
 | **Settings** | A short list that opens one section at a time: Appearance, Budget, Categories (with learned merchants), Apple Pay via Gmail, Use on your phone, Your data, and About. |
 
-**Themes:** **Settings → Appearance** has Light, Dark, Sand, Ocean and Lavender, plus **Automatic**, which follows your Mac or iPhone's light and dark mode. The choice is saved with your data, so it stays the same after a restart and on your phone.
+**Themes:** **Settings → Appearance** has Light, Dark, Sand, Ocean, Lavender, Rose and Noir (black and gold), plus **Automatic**, which follows your Mac or iPhone's light and dark mode. The choice is saved with your data, so it stays the same after a restart and on your phone.
 
 Dates are shown as DD/MM/YYYY, weeks start on Monday, and amounts are in euros. You can type amounts as `12,50` or `12.50`.
 
@@ -112,6 +114,18 @@ In **Settings → Budget**, set a monthly and/or weekly limit for everything. Li
 Progress bars are **green** under 75%, **amber** from 75% to 100%, and **red** when you're over. Home shows what's left, how much you can spend per day until the end of the month (today included), and how you compare with an even pace: with a 600 € budget, by day 10 of a 30-day month you'd "plan" to have spent 200 €.
 
 Refunds count as negative spending, so they give you budget back.
+
+### Monthly bills
+
+When you add something you pay every month (Spotify, the gym, your phone, rent), open **More options** and tick **Repeat every month**. From then on Budget adds it by itself on the same day each month. On the 31st, short months use their last day. If Budget wasn't opened for a while, the missed months are filled in on their own dates.
+
+Bills change two things on Home. The per-day amount already sets aside the bills still to come this month ("35 € in bills to come"). And the "more/less than planned so far" check leaves bills out, because they land on a single day and would otherwise make the start of every month look like overspending.
+
+**Settings → Monthly bills** lists them. Change an amount there when a price goes up (it applies from the next bill), or tap ✕ to stop one. Expenses a bill already added stay.
+
+### Month in review
+
+During the first week of each month, Home starts with a short card about the month before: what you spent against your budget, where most of it went, and how it compares with the month before that. Close it with ✕ and it won't come back until next month.
 
 ## 5. Importing a bank CSV
 
@@ -235,6 +249,10 @@ IMAP has to be on. On most accounts it always is; if Gmail's **Settings → See 
 
 The app password is stored in the **macOS Keychain** (as "Budget – Gmail app password"), never in a file or in the database. After you rebuild the app, macOS may ask once whether Budget may use it. Click **Always Allow**. **Forget saved password** removes it from the Keychain.
 
+### If the Shortcut stops sending
+
+If no Apple Pay email has arrived for 5 days, Home asks whether your iPhone Shortcut is still on. Shortcuts sometimes stop after an iOS update, a new card, or when Mail signs out. If you simply haven't paid with Apple Pay, tap **Hide for a week**. If Gmail itself can't be checked (a wrong or revoked app password, for example), Home says so and links to the fix.
+
 ### What happens to each email
 
 - **Imported.** The expense is added and categorized like any other. A notice says "*N new transactions imported*".
@@ -344,7 +362,8 @@ Your Mac must be awake, with Budget open, for the Shortcut to work.
 
 ## 9. Back up and restore your data
 
-- **Back up:** go to **Settings → Your data → Back up now**. This saves a timestamped copy such as `backups/budget-2026-10-04_17-49-49.db` next to the database. It's safe to do while the app is open. For extra safety, copy the whole `~/Library/Application Support/Budget` folder to iCloud Drive or a USB stick now and then.
+- **Automatic backups:** once a day, when Budget opens, it saves `backups/budget-auto-YYYY-MM-DD.db` and keeps the last 14. Backups you make yourself are never deleted.
+- **Back up now:** go to **Settings → Your data → Back up now**. This saves a timestamped copy such as `backups/budget-2026-10-04_17-49-49.db` next to the database. It's safe to do while the app is open. For extra safety, copy the whole `~/Library/Application Support/Budget` folder to iCloud Drive or a USB stick now and then.
 - **Restore:** quit Budget. In `~/Library/Application Support/Budget`, move `budget.db` aside and delete `budget.db-wal` and `budget.db-shm` if they exist. Copy the backup you want to `budget.db` and open Budget again.
 - **Export:** **Settings → Your data → Export all to CSV** opens a Save dialog. The file uses `;` separators and decimal commas, so it opens correctly in Spanish-language Excel and Numbers.
 
@@ -356,7 +375,7 @@ Your data and settings are never inside the project folder, so they can't end up
 .venv/bin/python -m pytest
 ```
 
-The tests cover merchant clean-up, every categorization layer (including corrections beating rules, and AI caching and failure), budget maths (Monday weeks, month ends and leap years, the 75%/100% colour thresholds, € left and € per day), the Gmail import (parsing the email line, refusing other senders, never importing twice, duplicates against bank CSVs, the review list, read-only IMAP access, and the app password never reaching the database), phone access (signing in, slowing down password guessing, Mac-only settings, hashed passwords and session tokens, starting and stopping the Wi-Fi server), the quick-add API, saving the colour theme, moving data from the old `data/` folder, and the native CSV export. They use temporary folders and never touch your real data.
+The tests cover merchant clean-up, every categorization layer (including corrections beating rules, and AI caching and failure), budget maths (Monday weeks, month ends and leap years, the 75%/100% colour thresholds, € left and € per day), the Gmail import (parsing the email line, refusing other senders, never importing twice, duplicates against bank CSVs, the review list, read-only IMAP access, and the app password never reaching the database), phone access (signing in, slowing down password guessing, Mac-only settings, hashed passwords and session tokens, starting and stopping the Wi-Fi server), the quick-add API, monthly bills (short months, catching up on missed months, never adding twice), automatic backups (one a day, keeping the last 14), saving the colour theme, moving data from the old `data/` folder, and the native CSV export. They use temporary folders and never touch your real data.
 
 ## Project layout
 
@@ -375,10 +394,12 @@ app/
   normalize.py         merchant name clean-up
   categorizer.py       learned → similar → keyword → AI
   budgets.py           week/month maths, limits, € left / per day
+  recurring.py         monthly bills: added on their day, catching up on missed months
+  backups.py           daily automatic backups (last 14 kept) and "Back up now"
   importer.py          CSV reading, date/amount parsing, duplicate checks
   gmail.py             reading Apple Pay emails over IMAP; Keychain for the app password
   email_sync.py        checks Gmail on launch and every 5 minutes; Needs review
-  routers/             the JSON API (expenses, categories, budgets, dashboard, import/export, preferences)
+  routers/             the JSON API (expenses, categories, budgets, dashboard, import/export, preferences, recurring)
 static/                the interface (HTML + JS, login page; Tailwind and Chart.js in static/vendor)
   theme.js             colour themes: every colour is a CSS variable the theme sets
 macos/

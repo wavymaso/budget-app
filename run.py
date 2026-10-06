@@ -54,6 +54,8 @@ def main() -> None:
         from app.db import init_db, migrate_legacy_data
         migrate_legacy_data()
         init_db()
+        from app.backups import auto_backup
+        auto_backup()
         port = args.port or 8000
         print(f"  Open http://localhost:{port} — press Ctrl+C to stop.\n", flush=True)
         from app.email_sync import Poller

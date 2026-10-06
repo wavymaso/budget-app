@@ -20,32 +20,44 @@
     violet:  ["f5f3ff", "ede9fe", "ddd6fe", "c4b5fd", "a78bfa", "8b5cf6", "7c3aed", "6d28d9", "5b21b6", "4c1d95", "2e1065"],
   };
 
-  // name, swatch label, neutrals 50..950, card surface, accent, text on accent, dark?
+  // Each theme: label, dark?, display font for the big numbers ("serif" or "sans"),
+  // card surface, accent and the text on it, and neutrals 50..950 (page background first).
+  const SERIF = 'ui-serif, "New York", "Iowan Old Style", Georgia, serif';
+  const SANS = 'ui-sans-serif, system-ui, -apple-system, "SF Pro Display", "Segoe UI", sans-serif';
   const THEMES = {
     light: {
-      label: "Light", dark: false, surface: "ffffff", accent: "0f172a", onAccent: "ffffff",
-      neutral: ["f8fafc", "f1f5f9", "e2e8f0", "cbd5e1", "94a3b8", "64748b", "475569", "334155", "1e293b", "0f172a", "020617"],
+      label: "Light", dark: false, display: "sans", surface: "ffffff", accent: "18181b", onAccent: "ffffff",
+      neutral: ["f7f7f8", "f0f0f2", "e4e4e7", "d4d4d8", "a1a1aa", "71717a", "52525b", "3f3f46", "27272a", "18181b", "09090b"],
     },
     dark: {
-      label: "Dark", dark: true, surface: "161c28", accent: "8ab4f8", onAccent: "0b0f19",
-      neutral: ["0b0f19", "1f2635", "2c3548", "404b60", "6f7b92", "939eb4", "b0bbcc", "cbd5e1", "e2e8f0", "f1f5f9", "ffffff"],
+      label: "Dark", dark: true, display: "sans", surface: "17191f", accent: "b7c4ff", onAccent: "0d0e12",
+      neutral: ["0d0e12", "20232b", "2b2f39", "3c414d", "697084", "8f96a8", "b1b7c6", "cdd2dd", "e3e6ed", "f3f4f8", "ffffff"],
     },
     sand: {
-      label: "Sand", dark: false, surface: "fffdf9", accent: "b4532a", onAccent: "ffffff",
-      neutral: ["f8f4ed", "f1ebe1", "e6ddcf", "d5c9b7", "a89d8c", "786f61", "575045", "443e36", "2a2520", "1c1916", "0f0d0b"],
+      label: "Sand", dark: false, display: "serif", surface: "fffdf8", accent: "9a4a2c", onAccent: "fffaf3",
+      neutral: ["f4eee4", "efe7da", "e4d9c8", "d3c4ae", "a69680", "7a6b58", "5a4e40", "463c31", "2d261f", "1f1a15", "110e0b"],
     },
     ocean: {
-      label: "Ocean", dark: false, surface: "ffffff", accent: "0e63a8", onAccent: "ffffff",
-      neutral: ["eff5fb", "e5eef7", "d3e1ee", "b6cade", "829ab4", "5a718c", "40556e", "2e4058", "1b2a3e", "0e1c2e", "06101c"],
+      label: "Ocean", dark: false, display: "sans", surface: "ffffff", accent: "1d5a7d", onAccent: "ffffff",
+      neutral: ["edf2f5", "e3eaef", "d2dde5", "b5c6d2", "8399a8", "5c7282", "425664", "324350", "1f2c36", "121d25", "080f14"],
     },
     lavender: {
-      label: "Lavender", dark: false, surface: "ffffff", accent: "6d4bd8", onAccent: "ffffff",
-      neutral: ["f6f4fb", "efecf8", "e2ddf1", "cdc6e4", "9b93b8", "6e668c", "504a6c", "3c3656", "26213a", "181428", "0d0a17"],
+      label: "Lavender", dark: false, display: "sans", surface: "ffffff", accent: "6a4c9c", onAccent: "ffffff",
+      neutral: ["f4f2f8", "edeaf4", "e0dbeb", "cbc4da", "9d94b1", "726a86", "554e66", "413b4f", "2a2634", "1b1822", "0e0c12"],
+    },
+    rose: {
+      label: "Rose", dark: false, display: "serif", surface: "fffbfa", accent: "8e2c48", onAccent: "fff7f8",
+      neutral: ["f8efee", "f3e6e5", "eadad8", "dbc5c3", "b09897", "84706f", "634f50", "4d3c3d", "322627", "211819", "120c0d"],
+    },
+    noir: {
+      label: "Noir", dark: true, display: "serif", surface: "121212", accent: "d8b46a", onAccent: "141008",
+      neutral: ["050505", "1c1c1c", "262626", "363636", "5e5e5e", "8a8a8a", "ababab", "c8c8c8", "e0e0e0", "f2f2f2", "ffffff"],
     },
   };
 
   function vars(t) {
-    const out = [`--surface:${rgb(t.surface)}`, `--accent:${rgb(t.accent)}`, `--on-accent:${rgb(t.onAccent)}`];
+    const out = [`--surface:${rgb(t.surface)}`, `--accent:${rgb(t.accent)}`, `--on-accent:${rgb(t.onAccent)}`,
+                 `--shadow:${t.dark ? "0 0 0" : rgb(t.neutral[9])}`, `--font-display:${t.display === "serif" ? SERIF : SANS}`];
     STEPS.forEach((s, i) => out.push(`--slate-${s}:${rgb(t.neutral[i])}`));
     for (const [name, shades] of Object.entries(TINTS)) {
       // Dark themes flip each tint scale, so pale backgrounds become deep ones
@@ -90,6 +102,7 @@
     const root = document.documentElement;
     root.classList.add("theme-switching");
     root.dataset.theme = name;
+    root.dataset.mode = THEMES[name].dark ? "dark" : "light";
     requestAnimationFrame(() => requestAnimationFrame(() => root.classList.remove("theme-switching")));
     let meta = document.querySelector('meta[name="theme-color"]');
     if (!meta) { meta = document.createElement("meta"); meta.name = "theme-color"; document.head.append(meta); }

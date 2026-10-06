@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from .. import categorizer, config, importer
+from .. import backups, categorizer, config, importer
 from ..db import connect, get_db, get_setting, set_setting
 from ..models import CATEGORY_SOURCES
 from .expenses import insert_expense
@@ -175,22 +175,10 @@ def export_csv(db: sqlite3.Connection = Depends(get_db)):
 
 @router.post("/backup")
 def backup():
-    config.BACKUP_DIR.mkdir(parents=True, exist_ok=True)
-    target = config.BACKUP_DIR / f"budget-{datetime.now():%Y-%m-%d_%H-%M-%S}.db"
-    src = connect()
-    dst = sqlite3.connect(target)
-    try:
-        src.backup(dst)   # consistent copy even while the app is running
-    finally:
-        dst.close()
-        src.close()
+    target = backups.make_backup()
     return {"file": target.name, "path": str(target), "size_bytes": target.stat().st_size}
 
 
 @router.get("/backups")
 def list_backups():
-    if not config.BACKUP_DIR.exists():
-        return []
-    files = sorted(config.BACKUP_DIR.glob("budget-*.db"), reverse=True)
-    return [{"file": f.name, "path": str(f), "size_bytes": f.stat().st_size,
-             "created": datetime.fromtimestamp(f.stat().st_mtime).isoformat(timespec="seconds")} for f in files]
+    return backups.list_backups()

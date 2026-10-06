@@ -12,7 +12,7 @@ def client(tmp_path, monkeypatch):
 
 
 def test_theme_defaults_to_automatic(client):
-    assert client.get("/api/preferences").json() == {"theme": "auto"}
+    assert client.get("/api/preferences").json()["theme"] == "auto"
 
 
 def test_theme_is_saved(client):
@@ -25,3 +25,14 @@ def test_theme_is_saved(client):
 def test_unknown_theme_is_refused(client):
     assert client.put("/api/preferences", json={"theme": "neon"}).status_code == 422
     assert client.get("/api/preferences").json()["theme"] == "auto"
+
+
+def test_month_summary_and_shortcut_warning_can_be_hidden(client):
+    prefs = client.put("/api/preferences", json={"summary_dismissed": "2026-09", "shortcut_snoozed_until": "2026-10-14"}).json()
+    assert (prefs["summary_dismissed"], prefs["shortcut_snoozed_until"], prefs["theme"]) == ("2026-09", "2026-10-14", "auto")
+    assert client.put("/api/preferences", json={"summary_dismissed": "September"}).status_code == 422
+
+
+def test_new_themes_are_accepted(client):
+    for theme in ("rose", "noir"):
+        assert client.put("/api/preferences", json={"theme": theme}).json()["theme"] == theme

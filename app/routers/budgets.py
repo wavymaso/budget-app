@@ -6,7 +6,7 @@ from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, field_validator
 
-from .. import budgets
+from .. import budgets, recurring
 from ..db import get_db
 from ..models import parse_amount, to_cents
 
@@ -68,8 +68,11 @@ def set_limit(body: LimitIn, db: sqlite3.Connection = Depends(get_db)):
 def status(date: Date | None = None, db: sqlite3.Connection = Depends(get_db)):
     today = Date.today()
     ref = date or today
+    recurring.add_due(db, today)
+    month = budgets.period_status(db, "month", ref, today)
+    month["bills"] = recurring.month_bills(db, Date.fromisoformat(month["start"]), Date.fromisoformat(month["end"]), today)
     return {
         "today": today.isoformat(),
         "week": budgets.period_status(db, "week", ref, today),
-        "month": budgets.period_status(db, "month", ref, today),
+        "month": month,
     }

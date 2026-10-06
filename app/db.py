@@ -96,6 +96,18 @@ CREATE TABLE IF NOT EXISTS sessions (
     last_seen   TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Monthly bills (Spotify, gym, rent): added as an expense on `day` every month.
+CREATE TABLE IF NOT EXISTS recurring (
+    id           INTEGER PRIMARY KEY,
+    merchant     TEXT NOT NULL,
+    amount_cents INTEGER NOT NULL,
+    category_id  INTEGER REFERENCES categories(id) ON DELETE SET NULL,
+    note         TEXT,
+    day          INTEGER NOT NULL CHECK (day BETWEEN 1 AND 31),
+    next_date    TEXT NOT NULL,              -- ISO date of the next expense to add
+    created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -169,11 +181,20 @@ def init_db() -> None:
         # WAL keeps the file consistent even if the server is killed mid-write.
         conn.execute("PRAGMA journal_mode = WAL")
         conn.executescript(SCHEMA)
+        _upgrade(conn)
         if get_setting(conn, "seeded") is None:
             _seed(conn)
         conn.commit()
     finally:
         conn.close()
+
+
+def _upgrade(conn: sqlite3.Connection) -> None:
+    """Add columns that newer versions need to a database made by an older one."""
+    columns = {r["name"] for r in conn.execute("PRAGMA table_info(expenses)")}
+    if "recurring_id" not in columns:
+        conn.execute("ALTER TABLE expenses ADD COLUMN recurring_id INTEGER REFERENCES recurring(id) ON DELETE SET NULL")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_expenses_recurring ON expenses(recurring_id)")
 
 
 def _seed(conn: sqlite3.Connection) -> None:

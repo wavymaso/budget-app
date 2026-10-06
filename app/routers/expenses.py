@@ -7,7 +7,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
-from .. import categorizer, config
+from .. import categorizer, config, recurring
 from ..db import get_db
 from ..models import ExpenseIn, to_cents
 from ..normalize import normalize_merchant
@@ -40,6 +40,7 @@ def expense_to_dict(row: sqlite3.Row) -> dict:
         "note": row["note"],
         "source": row["source"],
         "category_source": row["category_source"],
+        "recurring_id": row["recurring_id"],
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
     }
@@ -93,6 +94,7 @@ def list_expenses(
     offset: int = Query(0, ge=0),
     db: sqlite3.Connection = Depends(get_db),
 ):
+    recurring.add_due(db)
     where, params = [], []
     if q and q.strip():
         like = f"%{q.strip()}%"
@@ -160,6 +162,10 @@ def create_expense(body: ExpenseIn, db: sqlite3.Connection = Depends(get_db)):
         category_source=category_source,
         source="manual",
     )
+    if body.repeat_monthly:
+        recurring.create(db, expense_id=expense_id, merchant=body.merchant, amount_cents=to_cents(body.amount),
+                         category_id=category_id, note=body.note, first=body.date or Date.today())
+        recurring.add_due(db)   # a first date far in the past catches up to today
     db.commit()
     return fetch_expense(db, expense_id)
 

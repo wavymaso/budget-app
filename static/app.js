@@ -13,7 +13,15 @@ const state = {
   charts: [],
   renderToken: 0,
   txFilters: { q: "", category_id: "", date_from: "", date_to: "", sort: "date:desc" },
+  prefs: {},
 };
+
+/** Save one or more preferences (theme, hidden notices) and keep a local copy. */
+async function savePrefs(changes) {
+  Object.assign(state.prefs, changes);
+  try { state.prefs = await api("/api/preferences", { method: "PUT", body: changes }); }
+  catch (err) { toast(err.message, "error"); }
+}
 
 const eurFormat = new Intl.NumberFormat("es-ES", { style: "currency", currency: "EUR" });
 const fmtMoney = (cents) => eurFormat.format((cents || 0) / 100);
@@ -287,12 +295,18 @@ function expenseForm({ expense = null, onSaved, merchants = [] }) {
           <label class="label" for="${id}-note">Note</label>
           <input id="${id}-note" name="note" class="input" autocomplete="off" value="${esc(expense?.note || "")}">
         </div>
-        <label class="inline-flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
+        <label class="flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
           <input type="checkbox" name="refund" class="rounded border-slate-300" ${expense?.amount_cents < 0 ? "checked" : ""}>
           This is a refund (money back)
         </label>
+        ${isEdit ? "" : `<label class="flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
+          <input type="checkbox" name="repeat" class="rounded border-slate-300">
+          Repeat every month <span class="text-slate-400">(a bill like Spotify or the gym)</span>
+        </label>`}
       </div>
     </details>
+    ${expense?.recurring_id ? `<p class="text-sm text-slate-500 -mt-2">↻ This comes from a monthly bill.
+      <a href="#/settings?open=bills" class="underline">Change or stop it</a></p>` : ""}
     <p data-error class="hidden text-sm text-red-600"></p>
     <div data-actions class="flex flex-wrap items-center gap-2">
       <button type="submit" class="btn btn-primary py-3 flex-1 sm:flex-none sm:px-8">${isEdit ? "Save changes" : "Add expense"}</button>
@@ -394,6 +408,7 @@ function expenseForm({ expense = null, onSaved, merchants = [] }) {
       note: el.note.value.trim() || null,
       category_id: f.categoryId,
       category_source: f.categoryId ? (f.userPicked ? "manual" : f.source) : null,
+      ...(!isEdit && el.repeat?.checked ? { repeat_monthly: true } : {}),
     };
     const btn = $("button[type=submit]", el);
     btn.disabled = true;
@@ -413,6 +428,7 @@ function expenseForm({ expense = null, onSaved, merchants = [] }) {
     el.merchant.value = "";
     el.note.value = "";
     el.refund.checked = false;
+    if (el.repeat) el.repeat.checked = false;
     f.categoryId = null; f.source = null; f.userPicked = false; f.showAll = false; f.seq++;
     hint(""); showError(""); renderChips();
     el.amount.focus();
@@ -461,6 +477,7 @@ function expenseRow(e, { showDate = true } = {}) {
   // Each part is HTML-safe already.
   const details = [e.category_name ? esc(e.category_name) : `<span class="text-amber-700">Needs a category</span>`];
   if (showDate) details.push(friendlyDate(e.date));
+  if (e.recurring_id) details.push("Monthly");
   if (e.note) details.push(esc(e.note));
   return `<button type="button" data-expense="${e.id}" class="w-full text-left flex items-center gap-3 px-4 py-3 hover:bg-slate-50 focus:bg-slate-50 focus:outline-none">
     ${categoryAvatar(e.category_name, e.category_color)}
@@ -650,7 +667,7 @@ async function viewTransactions(root, params) {
 
 const settingsHooks = {};   // lets one section refresh another
 
-const THEME_ORDER = ["auto", "light", "dark", "sand", "ocean", "lavender"];
+const THEME_ORDER = ["auto", "light", "dark", "sand", "ocean", "lavender", "rose", "noir"];
 const themeLabel = (name) => name === "auto" ? "Automatic" : Theme.THEMES[name].label;
 
 function themeSwatch(name) {
@@ -666,7 +683,8 @@ function themeSwatch(name) {
   return `<button type="button" data-theme-pick="${name}" aria-pressed="${on}"
       class="text-left rounded-xl border-2 p-1 transition ${on ? "border-accent" : "border-transparent hover:border-slate-200"}">
     <span class="flex h-16 rounded-lg overflow-hidden border border-slate-200">${preview}</span>
-    <span class="block text-sm text-center mt-1.5 ${on ? "font-medium text-slate-900" : "text-slate-600"}">${themeLabel(name)}</span>
+    <span class="block text-sm text-center mt-1.5 ${on ? "font-medium text-slate-900" : "text-slate-600"}"
+          style="${Theme.THEMES[name]?.display === "serif" ? "font-family:ui-serif,'New York',Georgia,serif" : ""}">${themeLabel(name)}</span>
   </button>`;
 }
 
@@ -674,7 +692,7 @@ async function settingsAppearance(el) {
   const draw = () => {
     el.innerHTML = `
       <p class="text-sm text-slate-500 mb-3">Pick the colours you like. Automatic follows your Mac or iPhone's light and dark mode.</p>
-      <div class="grid grid-cols-3 sm:grid-cols-6 gap-2">${THEME_ORDER.map(themeSwatch).join("")}</div>`;
+      <div class="grid grid-cols-4 gap-2">${THEME_ORDER.map(themeSwatch).join("")}</div>`;
   };
   el.addEventListener("click", async (e) => {
     const b = e.target.closest("[data-theme-pick]");
@@ -682,8 +700,7 @@ async function settingsAppearance(el) {
     Theme.set(b.dataset.themePick);
     draw();
     settingsHooks.refreshSummaries?.();
-    try { await api("/api/preferences", { method: "PUT", body: { theme: Theme.choice } }); }
-    catch (err) { toast(err.message, "error"); }
+    await savePrefs({ theme: Theme.choice });
   });
   draw();
 }
@@ -844,6 +861,54 @@ async function settingsCategories(el) {
 
 }
 
+async function settingsBills(el) {
+  async function draw() {
+    const bills = await api("/api/recurring");
+    el.innerHTML = `
+      <p class="text-sm text-slate-500 mb-3">Bills are added by themselves on their day each month. Home counts them separately,
+        so they don't make it look like you're overspending early in the month. To add one, tick
+        <b>Repeat every month</b> under More options when you add the expense.</p>
+      ${bills.length ? `<div class="divide-y divide-slate-100">${bills.map((b) => `
+        <div data-bill="${b.id}" class="flex items-center gap-3 py-2.5">
+          ${categoryAvatar(b.category_name, b.category_color)}
+          <div class="flex-1 min-w-0">
+            <div class="font-medium text-slate-900 truncate">${esc(b.merchant)}</div>
+            <div class="text-xs text-slate-500">Every month on the ${ordinal(b.day)} · next ${friendlyDate(b.next_date)}</div>
+          </div>
+          <div class="relative w-24 shrink-0">
+            <input data-bill-amount value="${(b.amount_cents / 100).toFixed(2).replace(".", ",")}" inputmode="decimal"
+                   class="input !pr-6 text-right tabular" aria-label="Amount">
+            <span class="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-sm">€</span>
+          </div>
+          <button data-bill-stop class="btn btn-ghost !px-2 text-slate-400 hover:text-red-600" title="Stop repeating">✕</button>
+        </div>`).join("")}</div>`
+      : `<p class="text-sm text-slate-400">No monthly bills yet.</p>`}`;
+  }
+  el.addEventListener("change", async (e) => {
+    const row = e.target.closest("[data-bill]");
+    if (!row || !e.target.matches("[data-bill-amount]")) return;
+    const amount = parseAmount(e.target.value);
+    if (!(amount > 0)) { toast("Enter an amount like 10,99", "error"); return draw(); }
+    try {
+      await api(`/api/recurring/${row.dataset.bill}`, { method: "PATCH", body: { amount: amount.toFixed(2) } });
+      toast("New amount saved. It applies from the next bill.");
+      settingsHooks.refreshSummaries?.();
+    } catch (err) { toast(err.message, "error"); }
+  });
+  el.addEventListener("keydown", (e) => { if (e.key === "Enter" && e.target.matches("[data-bill-amount]")) e.target.blur(); });
+  el.addEventListener("click", async (e) => {
+    const row = e.target.closest("[data-bill]");
+    if (!row || !e.target.closest("[data-bill-stop]")) return;
+    await api(`/api/recurring/${row.dataset.bill}`, { method: "DELETE" });
+    toast("Stopped. Expenses it already added stay.");
+    await draw();
+    settingsHooks.refreshSummaries?.();
+  });
+  await draw();
+}
+
+const ordinal = (n) => `${n}${[11, 12, 13].includes(n % 100) ? "th" : ({ 1: "st", 2: "nd", 3: "rd" })[n % 10] || "th"}`;
+
 async function settingsAbout(el) {
   const status = await api("/api/status");
   const dot = (on) => `<span class="inline-block w-2 h-2 rounded-full mr-2 ${on ? "bg-emerald-500" : "bg-slate-300"}"></span>`;
@@ -865,6 +930,7 @@ async function viewSettings(root, params) {
   const sections = [
     { id: "appearance", title: "Appearance", init: settingsAppearance },
     { id: "budget", title: "Budget", init: async (el) => { settingsHooks.renderBudgets = await settingsBudgets(el); } },
+    { id: "bills", title: "Monthly bills", init: settingsBills },
     { id: "categories", title: "Categories", init: settingsCategories },
     local && { id: "gmail", title: "Apple Pay via Gmail", init: settingsGmail },
     local && { id: "phone", title: "Use on your phone", init: settingsPhone },
@@ -905,14 +971,17 @@ async function viewSettings(root, params) {
   settingsHooks.refreshSummaries = async () => {
     summary("appearance", themeLabel(Theme.choice));
     summary("categories", plural(state.categories.length, "category", "categories"));
-    summary("data", "Back up, export or import");
+    summary("data", "Backed up automatically every day");
     summary("device", "Signed in over Wi-Fi");
     summary("about", "Optional extras");
-    const [limits, gmail, phone] = await Promise.all([
+    const [limits, gmail, phone, bills] = await Promise.all([
       api("/api/budgets").catch(() => []),
       local ? api("/api/email/settings").catch(() => null) : null,
       local ? api("/api/phone").catch(() => null) : null,
+      api("/api/recurring").catch(() => []),
     ]);
+    summary("bills", bills.length
+      ? `${plural(bills.length, "bill", "bills")} · ${fmtMoney(bills.reduce((a, b) => a + b.amount_cents, 0))} a month` : "None yet");
     const overall = (p) => limits.find((l) => l.category_id == null && l.period === p);
     const parts = [overall("month") && `${fmtMoneyShort(overall("month").limit_cents)} a month`,
                    overall("week") && `${fmtMoneyShort(overall("week").limit_cents)} a week`].filter(Boolean);
@@ -920,10 +989,9 @@ async function viewSettings(root, params) {
     if (gmail) summary("gmail", gmail.enabled && gmail.address ? `On · ${gmail.address}` : "Off");
     if (phone) summary("phone", phone.running ? "On" : "Off");
   };
-  await settingsHooks.refreshSummaries();
-
   const open = params?.get("open");
   if (open) $(`[data-section="${open}"]`, root)?.setAttribute("open", "");
+  await settingsHooks.refreshSummaries();
 }
 
 /* ===========================================================================
@@ -1033,13 +1101,17 @@ const moneyTooltip = (ctx) => ` ${ctx.dataset.label ? ctx.dataset.label + ": " :
 // Axis ticks in whole euros; fractional ticks are left unlabelled.
 const axisMoney = (v) => (Number.isInteger(v / 100) ? `${v / 100} €` : "");
 
-/** One plain sentence on how spending compares with an even pace through the period. */
+/** One plain sentence on how everyday spending compares with an even pace through
+    the month. Monthly bills are left out: they land on one day and would skew it. */
 function paceLine(s, d) {
   if (s.limit_cents == null || !d.is_current || s.limit_cents <= 0) return "";
+  const bills = d.bills || { paid_cents: 0, upcoming_cents: 0 };
+  const everydayBudget = s.limit_cents - bills.paid_cents - bills.upcoming_cents;
+  if (everydayBudget <= 0) return "";
   const elapsed = d.days_total - d.days_left + 1;
-  const expected = Math.round(s.limit_cents * elapsed / d.days_total);
-  const diff = expected - s.spent_cents;
-  if (Math.abs(diff) < s.limit_cents * 0.03) return "right on plan so far";
+  const expected = Math.round(everydayBudget * elapsed / d.days_total);
+  const diff = expected - (s.spent_cents - bills.paid_cents);
+  if (Math.abs(diff) < everydayBudget * 0.03) return "right on plan so far";
   return diff > 0 ? `${fmtMoney(diff)} less than planned so far` : `${fmtMoney(-diff)} more than planned so far`;
 }
 
@@ -1047,6 +1119,8 @@ function bar(pct, color, { thick = false } = {}) {
   return `<div class="${thick ? "h-2.5" : "h-1.5"} rounded-full bg-slate-100 overflow-hidden">
     <div class="h-full rounded-full transition-all" style="width:${Math.max(0, Math.min(100, pct))}%;background:${color}"></div></div>`;
 }
+/** Bar colour: calm when on track, amber/red only as a warning. */
+const levelColor = (level, calm = "rgb(var(--accent))") => level === "green" ? calm : LEVELS[level]?.color || calm;
 const limitPct = (s) => s.limit_cents > 0 ? (s.spent_cents / s.limit_cents) * 100 : (s.spent_cents > 0 ? 100 : 0);
 
 /** The big "€ left this month" card, with this week as one line underneath. */
@@ -1058,29 +1132,32 @@ function heroCard(month, week) {
   if (m.limit_cents == null) {
     top = `
       <p class="text-sm text-slate-500">Spent in ${name}</p>
-      <p class="text-4xl sm:text-5xl font-semibold tabular text-slate-900 mt-1">${fmtMoney(m.spent_cents)}</p>
+      <p class="display text-5xl sm:text-6xl font-semibold text-slate-900 mt-1">${fmtMoney(m.spent_cents)}</p>
       <a href="#/settings?open=budget" class="btn btn-secondary mt-4">Set a monthly budget</a>`;
   } else {
     const over = m.left_cents < 0;
     const pace = paceLine(m, month);
+    const upcoming = month.bills?.upcoming_cents || 0;
+    // What you can spend a day once the bills still to come are paid.
+    const perDay = month.days_left ? Math.max(0, m.left_cents - upcoming) / month.days_left : 0;
     top = `
       <div class="flex items-baseline justify-between gap-2">
         <p class="text-sm text-slate-500">${over ? `Over budget in ${name}` : `Left to spend in ${name}`}</p>
         <p class="text-xs text-slate-400">${dayWord} to go</p>
       </div>
-      <p class="text-4xl sm:text-5xl font-semibold tabular mt-1 ${over ? "text-red-600" : "text-slate-900"}">${fmtMoney(Math.abs(m.left_cents))}</p>
-      <div class="mt-4">${bar(limitPct(m), LEVELS[m.level].color, { thick: true })}</div>
-      <div class="mt-2 flex flex-wrap justify-between gap-x-4 gap-y-1 text-sm text-slate-500">
-        <span>${fmtMoney(m.spent_cents)} of ${fmtMoneyShort(m.limit_cents)}</span>
-        <span>${over ? "" : `About <b class="text-slate-900 tabular">${fmtMoney(m.per_day_cents)}</b> a day`}${pace && !over ? ` · ${pace}` : ""}</span>
+      <p class="display text-5xl sm:text-6xl font-semibold mt-1 ${over ? "text-red-600" : "text-slate-900"}">${fmtMoney(Math.abs(m.left_cents))}</p>
+      <div class="mt-5">${bar(limitPct(m), levelColor(m.level), { thick: true })}</div>
+      <div class="mt-2.5 flex flex-wrap justify-between gap-x-4 gap-y-1 text-sm text-slate-500">
+        <span>${fmtMoney(m.spent_cents)} of ${fmtMoneyShort(m.limit_cents)}${upcoming ? ` · ${fmtMoneyShort(upcoming)} in bills to come` : ""}</span>
+        <span>${over ? "" : `About <b class="text-slate-900 tabular">${fmtMoney(Math.floor(perDay))}</b> a day`}${pace && !over ? ` · ${pace}` : ""}</span>
       </div>`;
   }
   const weekLine = w.limit_cents == null
     ? `<span>This week</span><span class="tabular text-slate-700">${fmtMoney(w.spent_cents)} spent</span>`
     : `<span>This week</span>
-       <span class="flex-1 max-w-[10rem] mx-3">${bar(limitPct(w), LEVELS[w.level].color)}</span>
+       <span class="flex-1 max-w-[10rem] mx-3">${bar(limitPct(w), levelColor(w.level))}</span>
        <span class="tabular text-slate-700">${w.left_cents < 0 ? `${fmtMoney(-w.left_cents)} over` : `${fmtMoney(w.left_cents)} left`}</span>`;
-  return `<section class="card p-5 sm:p-6">
+  return `<section class="card hero p-5 sm:p-7">
     ${top}
     <a href="#/transactions?date_from=${week.start}&date_to=${week.end}" class="mt-5 pt-4 border-t border-slate-100 flex items-center justify-between text-sm text-slate-500 hover:text-slate-900">${weekLine}</a>
   </section>`;
@@ -1101,11 +1178,75 @@ function whereItWent(d, txLink) {
           <span class="tabular font-medium text-slate-900">${fmtMoney(c.spent_cents)}</span>
           ${c.limit_cents != null ? `<span class="tabular text-xs text-slate-400 w-16 text-right">of ${fmtMoneyShort(c.limit_cents)}</span>` : ""}
         </div>
-        ${c.limit_cents != null ? bar(limitPct(c), LEVELS[c.level].color) : bar((c.spent_cents / top) * 100, esc(c.color))}
+        ${c.limit_cents != null ? bar(limitPct(c), levelColor(c.level, esc(c.color))) : bar((c.spent_cents / top) * 100, esc(c.color))}
       </a>
     </li>`;
   return `<ul>${cats.map(row).join("")}</ul>
     ${cats.length > SHOW ? `<button data-show-extra class="link mt-2">Show ${cats.length - SHOW} more</button>` : ""}`;
+}
+
+/** Parse SQLite UTC ("2026-10-05 14:43:00") or ISO with an offset. */
+const parseWhen = (s) => new Date(/[zZ]|[+-]\d\d:?\d\d$/.test(s) ? s.replace(" ", "T") : s.replace(" ", "T") + "Z");
+const daysSince = (s) => Math.floor((Date.now() - parseWhen(s).getTime()) / 86400000);
+
+/** Quiet warnings about the iPhone Shortcut and Gmail, shown on Home only when something's off. */
+function homeNotices(email) {
+  const out = [];
+  const box = (text, actions) => `<div class="flex flex-wrap items-center gap-x-3 gap-y-1 mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+      <span class="flex-1 min-w-[12rem]">${text}</span>${actions}</div>`;
+  if (email.review_count) {
+    out.push(`<a href="#/import" class="flex items-center gap-3 mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 hover:bg-amber-100">
+      <span class="flex-1">${plural(email.review_count, "payment from your iPhone needs", "payments from your iPhone need")} a quick check</span>
+      <span class="font-medium">Review →</span></a>`);
+  }
+  if (!email.enabled) return out.join("");
+  if (email.last_sync?.error) {
+    out.push(box(`Couldn't check Gmail for Apple Pay payments: ${esc(email.last_sync.error)}`,
+      state.local ? `<a href="#/settings?open=gmail" class="font-medium">Fix →</a>` : ""));
+  } else if (email.last_email_at) {
+    const days = daysSince(email.last_email_at);
+    const snoozed = state.prefs.shortcut_snoozed_until && state.prefs.shortcut_snoozed_until >= todayISO();
+    if (days >= 5 && !snoozed) {
+      out.push(box(`No Apple Pay emails for ${days} days. Is your iPhone Shortcut still on?`,
+        `<button data-snooze-shortcut class="font-medium hover:underline">Hide for a week</button>`));
+    }
+  }
+  return out.join("");
+}
+
+/** For the first week of a month: a short look back at the one before. Closable. */
+async function monthSummary() {
+  const today = new Date();
+  if (today.getDate() > 7) return "";
+  const prev = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+  const key = isoOf(prev).slice(0, 7);
+  if (state.prefs.summary_dismissed === key) return "";
+  let d;
+  try { d = await api(`/api/dashboard?period=month&date=${isoOf(prev)}`); } catch { return ""; }
+  const o = d.overall;
+  if (!(o.spent_cents > 0)) return "";
+  const top = d.categories.filter((c) => c.spent_cents > 0).sort((a, b) => b.spent_cents - a.spent_cents)[0];
+  const name = monthOnly.format(prev);
+  let verdict = `You spent <b class="text-slate-900">${fmtMoney(o.spent_cents)}</b>.`;
+  if (o.limit_cents != null) {
+    verdict = o.left_cents >= 0
+      ? `You spent <b class="text-slate-900">${fmtMoney(o.spent_cents)}</b> of ${fmtMoneyShort(o.limit_cents)}, <b class="text-slate-900">${fmtMoney(o.left_cents)}</b> under budget.`
+      : `You spent <b class="text-slate-900">${fmtMoney(o.spent_cents)}</b>, ${fmtMoney(-o.left_cents)} over your ${fmtMoneyShort(o.limit_cents)} budget.`;
+  }
+  const change = d.prev_total_cents > 0 ? Math.round(((o.spent_cents - d.prev_total_cents) / d.prev_total_cents) * 100) : null;
+  return `<section data-summary-card="${key}" class="card p-5 sm:p-6 mb-4">
+    <div class="flex items-start gap-3">
+      <div class="flex-1">
+        <p class="text-xs font-medium uppercase tracking-wider text-slate-400">Month in review</p>
+        <h2 class="display text-2xl font-semibold text-slate-900 mt-1">${name}</h2>
+      </div>
+      <button data-close-summary class="text-slate-400 hover:text-slate-700 text-2xl leading-none px-1" aria-label="Close">&times;</button>
+    </div>
+    <p class="text-sm text-slate-600 mt-2">${verdict}
+      ${top ? ` Most went to ${esc(top.name)} (${fmtMoney(top.spent_cents)}).` : ""}
+      ${change != null && Math.abs(change) >= 1 ? ` That's ${Math.abs(change)}% ${change < 0 ? "less" : "more"} than the month before.` : ""}</p>
+    <a href="#/home?date=${isoOf(prev)}" class="link inline-block mt-3">See ${name} →</a>
+  </section>`;
 }
 
 let trendsOpen = false;   // remembered while the app is open
@@ -1136,11 +1277,10 @@ async function viewDashboard(root, params) {
     return;
   }
 
+  const summary = d.is_current ? await monthSummary() : "";
   root.innerHTML = `
-    ${emailStatus.review_count ? `<a href="#/import" class="flex items-center gap-3 mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 hover:bg-amber-100">
-      <span class="flex-1">${plural(emailStatus.review_count, "payment from your iPhone needs", "payments from your iPhone need")} a quick check</span>
-      <span class="font-medium">Review →</span></a>` : ""}
-
+    ${homeNotices(emailStatus)}
+    ${summary}
     ${heroCard(glance.month, glance.week)}
 
     <div class="grid lg:grid-cols-2 gap-4 mt-4">
@@ -1191,6 +1331,15 @@ async function viewDashboard(root, params) {
     </div>`;
 
   wireExpenseRows($("[data-recent]", root), { find: (fn) => recent.items.find(fn) }, render);
+  $("[data-snooze-shortcut]", root)?.addEventListener("click", async (e) => {
+    e.target.closest(".rounded-xl").remove();
+    await savePrefs({ shortcut_snoozed_until: addDaysISO(todayISO(), 7) });
+  });
+  $("[data-close-summary]", root)?.addEventListener("click", async (e) => {
+    const card = e.target.closest("[data-summary-card]");
+    card.remove();
+    await savePrefs({ summary_dismissed: card.dataset.summaryCard });
+  });
   $("[data-show-extra]", root)?.addEventListener("click", (e) => {
     $$("[data-extra]", root).forEach((li) => li.removeAttribute("hidden"));
     e.target.remove();
@@ -1411,6 +1560,7 @@ async function viewImport(root) {
 
 async function settingsData(el) {
   el.innerHTML = `
+    <p class="text-sm text-slate-500 mb-2">Budget makes a backup by itself once a day when it opens and keeps the last 14.</p>
     <p class="text-sm text-slate-500 mb-4">Everything is stored on your Mac in
       <code data-db-path class="text-xs bg-slate-100 rounded px-1 break-all"></code>.
       Rebuilding or updating the app never touches it.</p>
@@ -1426,7 +1576,7 @@ async function settingsData(el) {
     $("[data-backups]", el).innerHTML = files.length ? `
       <p class="text-xs text-slate-500 mb-1">Backups (in the <code class="bg-slate-100 rounded px-1">backups</code> folder next to the database):</p>
       <ul class="text-xs text-slate-600 space-y-0.5 max-h-40 overflow-y-auto">${files.slice(0, 20).map((f) =>
-        `<li class="tabular">${esc(f.file)} <span class="text-slate-400">· ${(f.size_bytes / 1024).toFixed(0)} KB</span></li>`).join("")}</ul>`
+        `<li class="tabular">${esc(f.file)} <span class="text-slate-400">· ${f.automatic ? "automatic · " : ""}${(f.size_bytes / 1024).toFixed(0)} KB</span></li>`).join("")}</ul>`
       : `<p class="text-xs text-slate-400">No backups yet.</p>`;
   }
   const status = await api("/api/status");
@@ -1792,7 +1942,7 @@ document.addEventListener("keydown", (e) => {
 
 (async function start() {
   try { state.local = (await (await fetch("/api/auth/me")).json()).local; } catch { /* assume local */ }
-  try { const p = await api("/api/preferences"); if (p.theme !== Theme.choice) Theme.set(p.theme); } catch { /* keep the cached theme */ }
+  try { state.prefs = await api("/api/preferences"); if (state.prefs.theme !== Theme.choice) Theme.set(state.prefs.theme); } catch { /* keep the cached theme */ }
   buildNav();
   try { await loadCategories(); } catch (e) { toast("Can't reach the server: " + e.message, "error"); }
   render();

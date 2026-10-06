@@ -75,8 +75,11 @@ def sync_now():
 @router.get("/status")
 def status(db: sqlite3.Connection = Depends(get_db)):
     review = db.execute("SELECT COUNT(*) FROM email_messages WHERE status = 'review'").fetchone()[0]
+    # When the newest Apple Pay email arrived, so Home can notice a Shortcut that stopped sending.
+    last_email = db.execute("SELECT MAX(COALESCE(received_at, processed_at)) FROM email_messages WHERE status != 'refused'").fetchone()[0]
     return {"enabled": email_sync.get_config(db)["enabled"],
-            "last_sync": get_setting(db, "email_last_sync"), "review_count": review}
+            "last_sync": get_setting(db, "email_last_sync"), "review_count": review,
+            "last_email_at": last_email}
 
 
 @router.get("/review")

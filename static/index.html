@@ -21,7 +21,7 @@
     .btn-secondary { @apply bg-surface border border-slate-200 text-slate-700 hover:bg-slate-50; }
     .btn-ghost { @apply text-slate-600 hover:bg-slate-100; }
     .btn-danger { @apply bg-red-600 text-white hover:bg-red-700; }
-    .card { @apply bg-surface rounded-2xl border border-slate-200/70 shadow-sm; }
+    .card { @apply bg-surface rounded-[1.25rem] border border-slate-200/60; box-shadow: 0 1px 2px rgb(var(--shadow) / .04), 0 12px 32px -18px rgb(var(--shadow) / .18); }
     .label { @apply block text-xs font-medium text-slate-500 mb-1; }
     .chip { @apply inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm transition select-none; }
     .link { @apply text-sm text-slate-500 hover:text-slate-900; }
@@ -30,13 +30,18 @@
   <style>
     body { -webkit-tap-highlight-color: transparent; }
     .tabular { font-variant-numeric: tabular-nums; }
+    /* Big amounts: the theme's display face (a serif in Sand, Rose and Noir). */
+    .display { font-family: var(--font-display); font-variant-numeric: tabular-nums lining-nums; letter-spacing: -0.025em; }
+    :root[data-theme="sand"] .display, :root[data-theme="rose"] .display, :root[data-theme="noir"] .display { font-weight: 500; letter-spacing: -0.01em; }
+    /* The hero card gets a faint wash of the accent colour. */
+    .hero { background-image: radial-gradient(120% 140% at 100% 0%, rgb(var(--accent) / .07), transparent 55%); }
     .nav-link.active { color: rgb(var(--slate-900)); background: rgb(var(--slate-100)); }
     .bottom-link.active { color: rgb(var(--accent)); }
     input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; }
     summary::-webkit-details-marker { display: none; }
     /* Category letter badges: a soft tint of the colour; lighter text on dark themes. */
     .cat-avatar { background: color-mix(in srgb, var(--c) 15%, transparent); color: var(--c); }
-    :root[data-theme="dark"] .cat-avatar { background: color-mix(in srgb, var(--c) 25%, transparent); color: color-mix(in srgb, var(--c) 55%, white); }
+    :root[data-mode="dark"] .cat-avatar { background: color-mix(in srgb, var(--c) 25%, transparent); color: color-mix(in srgb, var(--c) 55%, white); }
     details[open] > summary [data-chevron] { transform: rotate(90deg); }
     @media (prefers-reduced-motion: no-preference) {
       #view > * { animation: fade-in .18s ease-out; }
