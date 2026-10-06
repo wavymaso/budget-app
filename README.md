@@ -152,9 +152,28 @@ Body:    2026-10-04T13:22:05+02:00;MERCADONA;12,45 €;EUR
 
 Only that line is read. Anything else in the email, like "Sent from my iPhone", is ignored. Budget opens Gmail **read-only**, so it never marks, moves or deletes an email.
 
-### Step 1: the iPhone Shortcut
+### Step 1: the iPhone Shortcuts
 
-This makes your iPhone email every Apple Pay payment to you automatically. On the iPhone, the **Mail** app must be signed in to your Gmail account.
+These make your iPhone email every Apple Pay payment to you automatically. On the iPhone, the **Mail** app must be signed in to your Gmail account.
+
+#### On iOS 27: describe it and let Shortcuts build it
+
+iOS 27 builds the automation trigger right into the shortcut, so you can describe the whole thing in one go. Open **Shortcuts**, tap **New Shortcut** and paste this, replacing the card name and email address with your own:
+
+> Every time I pay with Apple Pay using my [card name] card in Wallet, run immediately without asking me or showing a notification. Take the transaction's date, merchant, amount, and currency code and combine them into one line of text separated by semicolons, in this exact order: date;merchant;amount;currency. Format the date as ISO 8601. Then send that line in an email to your.address+budget@gmail.com with the subject BUDGET, without showing the compose screen.
+
+For purchases the trigger misses (online orders, cash, Bizum), make a second one:
+
+> Ask me for an amount as a number, then ask me for the merchant name. Combine the current date formatted as ISO 8601, the merchant, the amount, and EUR into one line separated by semicolons, in this exact order: date;merchant;amount;EUR. Send that line in an email to your.address+budget@gmail.com with the subject BUDGET, without showing the compose screen.
+
+The AI usually gets close but can fumble details, so open each one after it's built and check:
+
+- **Trigger:** it's set to Wallet, your card is selected, and it runs immediately.
+- **Text line:** it has semicolons in the right order with nothing extra added.
+- **Date:** it's set to ISO 8601. If it shows something like "4 Oct 2026", tap the date variable and change the format.
+- **Send Email:** **Show Compose Sheet** is off.
+
+#### On older iOS: build it by hand
 
 1. Open **Shortcuts**, go to **Automation**, tap **+**, choose **Transaction**, pick your card(s), and set it to **Run Immediately**. Then tap **Next → New Blank Automation**.
 2. Add **Format Date**: date *Current Date*, format **ISO 8601**, **Include Time** on.
@@ -167,7 +186,7 @@ This makes your iPhone email every Apple Pay payment to you automatically. On th
    - **Body:** the *Text* from step 3
    - Under the arrow, turn **Show Compose Sheet** off, so it sends without asking.
 
-Pay for something with Apple Pay, and an email like the one above should arrive in Gmail.
+Pay for something with Apple Pay, and an email like the one above should arrive in Gmail. Payments in a currency other than EUR land in the review list instead of being added.
 
 ### Step 2: create a Gmail app password
 
