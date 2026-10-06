@@ -108,6 +108,23 @@ CREATE TABLE IF NOT EXISTS recurring (
     created_at   TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Savings: what was left of each month's budget, stored when the month ends
+-- (so changing the budget later doesn't rewrite the past) ...
+CREATE TABLE IF NOT EXISTS savings_months (
+    month        TEXT PRIMARY KEY,           -- YYYY-MM
+    limit_cents  INTEGER,                    -- the monthly budget then (NULL = none set)
+    spent_cents  INTEGER NOT NULL,
+    saved_cents  INTEGER NOT NULL            -- limit - spent; negative if overspent
+);
+-- ... plus money you add or take out yourself (a starting amount, spending it on the trip).
+CREATE TABLE IF NOT EXISTS savings_moves (
+    id           INTEGER PRIMARY KEY,
+    date         TEXT NOT NULL,
+    amount_cents INTEGER NOT NULL,           -- positive = added, negative = taken out
+    note         TEXT,
+    created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL

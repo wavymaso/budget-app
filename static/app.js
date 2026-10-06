@@ -907,6 +907,116 @@ async function settingsBills(el) {
   await draw();
 }
 
+const monthLong = (key) => monthName.format(dateObj(key + "-01"));
+
+async function settingsSavings(el) {
+  let sv = await api("/api/savings");
+  const goalPct = () => sv.goal_cents ? Math.max(0, Math.min(100, (sv.total_cents / sv.goal_cents) * 100)) : 0;
+  const money = (c) => (c / 100).toFixed(2).replace(".", ",").replace(/,00$/, "");
+
+  function draw() {
+    if (!sv.enabled) {
+      el.innerHTML = `
+        <p class="text-sm text-slate-500 mb-3">On the 1st of each month, whatever was left of last month's budget goes into savings
+          (and if you overspent, it comes off). Add a goal, like a trip, to see how close you are.</p>
+        <div class="flex flex-wrap items-end gap-2">
+          <div class="w-40"><label class="label">Already saved <span class="font-normal text-slate-400">(optional)</span></label>
+            <div class="relative"><input data-start inputmode="decimal" class="input !pr-7 text-right tabular" placeholder="0">
+              <span class="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-sm">€</span></div></div>
+          <button data-enable class="btn btn-primary">Turn on savings</button>
+        </div>`;
+      return;
+    }
+    const history = [
+      ...sv.months.map((m) => ({ sort: m.month + "-99", label: monthLong(m.month),
+        sub: m.limit_cents == null ? "No monthly budget was set"
+          : `Spent ${fmtMoney(m.spent_cents)} of ${fmtMoneyShort(m.limit_cents)}`, cents: m.saved_cents })),
+      ...sv.moves.map((m) => ({ sort: m.date, id: m.id, label: m.note || (m.amount_cents > 0 ? "Added" : "Taken out"),
+        sub: friendlyDate(m.date), cents: m.amount_cents })),
+    ].sort((a, b) => b.sort.localeCompare(a.sort));
+    el.innerHTML = `
+      <div class="flex items-baseline justify-between gap-3">
+        <p class="display text-4xl font-semibold text-slate-900">${fmtMoney(sv.total_cents)}</p>
+        <span class="text-xs text-slate-400">counting since ${monthLong(sv.start_month)}</span>
+      </div>
+      ${sv.goal_cents ? `<div class="mt-3">${bar(goalPct(), "rgb(var(--accent))", { thick: true })}
+        <p class="text-sm text-slate-500 mt-1.5">${Math.round(goalPct())}% of ${esc(sv.goal_name || "your goal")} (${fmtMoneyShort(sv.goal_cents)})
+          ${sv.total_cents < sv.goal_cents ? ` · ${fmtMoney(sv.goal_cents - sv.total_cents)} to go` : " · reached!"}</p></div>` : ""}
+      <p class="text-sm text-slate-500 mt-3">On the 1st of each month, what's left of last month's budget is added here.</p>
+
+      <h3 class="text-sm font-medium text-slate-700 mt-5 mb-2">Goal</h3>
+      <form data-goal class="flex flex-wrap gap-2">
+        <input name="goal_name" class="input flex-1 min-w-[9rem]" maxlength="60" placeholder="e.g. Lisbon trip" value="${esc(sv.goal_name || "")}">
+        <div class="relative w-28"><input name="goal" inputmode="decimal" class="input !pr-7 text-right tabular" placeholder="Amount"
+          value="${sv.goal_cents ? money(sv.goal_cents) : ""}"><span class="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-sm">€</span></div>
+        <button class="btn btn-secondary">Save goal</button>
+        ${sv.goal_cents ? `<button type="button" data-clear-goal class="btn btn-ghost">Remove</button>` : ""}
+      </form>
+
+      <h3 class="text-sm font-medium text-slate-700 mt-5 mb-2">Add or take out money</h3>
+      <form data-move class="flex flex-wrap gap-2">
+        <div class="relative w-28"><input name="amount" inputmode="decimal" class="input !pr-7 text-right tabular" placeholder="0,00">
+          <span class="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-sm">€</span></div>
+        <input name="note" class="input flex-1 min-w-[9rem]" maxlength="200" placeholder="What for? (optional)">
+        <button data-dir="1" class="btn btn-secondary">Add</button>
+        <button data-dir="-1" class="btn btn-secondary">Take out</button>
+      </form>
+
+      ${history.length ? `<h3 class="text-sm font-medium text-slate-700 mt-5 mb-1">History</h3>
+      <div class="divide-y divide-slate-100">${history.map((h) => `
+        <div class="flex items-center gap-3 py-2 text-sm">
+          <div class="flex-1 min-w-0"><div class="text-slate-800 truncate">${esc(h.label)}</div><div class="text-xs text-slate-500">${esc(h.sub)}</div></div>
+          <span class="tabular font-medium ${h.cents < 0 ? "text-red-600" : "text-emerald-600"}">${h.cents > 0 ? "+" : ""}${fmtMoney(h.cents)}</span>
+          ${h.id ? `<button data-del-move="${h.id}" class="btn btn-ghost !px-2 text-slate-400 hover:text-red-600" title="Remove">✕</button>` : `<span class="w-8"></span>`}
+        </div>`).join("")}</div>` : ""}
+      <button data-disable class="link mt-5">Turn off savings</button>`;
+  }
+
+  const update = async (fn) => {
+    try { sv = await fn(); draw(); settingsHooks.refreshSummaries?.(); }
+    catch (err) { toast(err.message, "error"); }
+  };
+  el.addEventListener("click", async (e) => {
+    if (e.target.closest("[data-enable]")) {
+      const start = $("[data-start]", el).value.trim();
+      const amount = start ? parseAmount(start) : 0;
+      if (start && !(amount >= 0)) return toast("Enter an amount like 200", "error");
+      await update(async () => {
+        await api("/api/savings", { method: "PUT", body: { enabled: true } });
+        return amount > 0
+          ? api("/api/savings/moves", { method: "POST", body: { amount: amount.toFixed(2), note: "Already saved" } })
+          : api("/api/savings");
+      });
+      toast("Savings is on");
+    } else if (e.target.closest("[data-disable]")) {
+      await update(() => api("/api/savings", { method: "PUT", body: { enabled: false } }));
+      toast("Savings is off. Turn it on again any time; nothing is lost.");
+    } else if (e.target.closest("[data-clear-goal]")) {
+      await update(() => api("/api/savings", { method: "PUT", body: { clear_goal: true } }));
+    } else if (e.target.closest("[data-del-move]")) {
+      await api(`/api/savings/moves/${e.target.closest("[data-del-move]").dataset.delMove}`, { method: "DELETE" });
+      await update(() => api("/api/savings"));
+    }
+  });
+  el.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const f = e.target;
+    if (f.matches("[data-goal]")) {
+      const goal = parseAmount(f.goal.value);
+      if (!(goal > 0)) return toast("Enter the goal amount, like 500", "error");
+      await update(() => api("/api/savings", { method: "PUT", body: { goal_name: f.goal_name.value.trim(), goal: goal.toFixed(2) } }));
+      toast("Goal saved");
+    } else if (f.matches("[data-move]")) {
+      const amount = parseAmount(f.amount.value);
+      if (!(amount > 0)) return toast("Enter an amount, like 50", "error");
+      const dir = Number(e.submitter?.dataset.dir || 1);
+      await update(() => api("/api/savings/moves", { method: "POST", body: { amount: (dir * amount).toFixed(2), note: f.note.value.trim() || null } }));
+      toast(dir > 0 ? "Added to savings" : "Taken out of savings");
+    }
+  });
+  draw();
+}
+
 const ordinal = (n) => `${n}${[11, 12, 13].includes(n % 100) ? "th" : ({ 1: "st", 2: "nd", 3: "rd" })[n % 10] || "th"}`;
 
 async function settingsAbout(el) {
@@ -930,6 +1040,7 @@ async function viewSettings(root, params) {
   const sections = [
     { id: "appearance", title: "Appearance", init: settingsAppearance },
     { id: "budget", title: "Budget", init: async (el) => { settingsHooks.renderBudgets = await settingsBudgets(el); } },
+    { id: "savings", title: "Savings", init: settingsSavings },
     { id: "bills", title: "Monthly bills", init: settingsBills },
     { id: "categories", title: "Categories", init: settingsCategories },
     local && { id: "gmail", title: "Apple Pay via Gmail", init: settingsGmail },
@@ -974,12 +1085,15 @@ async function viewSettings(root, params) {
     summary("data", "Backed up automatically every day");
     summary("device", "Signed in over Wi-Fi");
     summary("about", "Optional extras");
-    const [limits, gmail, phone, bills] = await Promise.all([
+    const [limits, gmail, phone, bills, sv] = await Promise.all([
       api("/api/budgets").catch(() => []),
       local ? api("/api/email/settings").catch(() => null) : null,
       local ? api("/api/phone").catch(() => null) : null,
       api("/api/recurring").catch(() => []),
+      api("/api/savings").catch(() => null),
     ]);
+    if (sv) summary("savings", !sv.enabled ? "Off" : [`${fmtMoney(sv.total_cents)} saved`,
+      sv.goal_cents && `${Math.round(Math.max(0, Math.min(100, sv.total_cents / sv.goal_cents * 100)))}% of ${sv.goal_name || "your goal"}`].filter(Boolean).join(" · "));
     summary("bills", bills.length
       ? `${plural(bills.length, "bill", "bills")} · ${fmtMoney(bills.reduce((a, b) => a + b.amount_cents, 0))} a month` : "None yet");
     const overall = (p) => limits.find((l) => l.category_id == null && l.period === p);
@@ -1124,7 +1238,7 @@ const levelColor = (level, calm = "rgb(var(--accent))") => level === "green" ? c
 const limitPct = (s) => s.limit_cents > 0 ? (s.spent_cents / s.limit_cents) * 100 : (s.spent_cents > 0 ? 100 : 0);
 
 /** The big "€ left this month" card, with this week as one line underneath. */
-function heroCard(month, week) {
+function heroCard(month, week, sv) {
   const m = month.overall, w = week.overall;
   const name = monthOnly.format(dateObj(month.start));
   const dayWord = plural(month.days_left, "day", "days");
@@ -1160,6 +1274,10 @@ function heroCard(month, week) {
   return `<section class="card hero p-5 sm:p-7">
     ${top}
     <a href="#/transactions?date_from=${week.start}&date_to=${week.end}" class="mt-5 pt-4 border-t border-slate-100 flex items-center justify-between text-sm text-slate-500 hover:text-slate-900">${weekLine}</a>
+    ${sv?.enabled ? `<a href="#/settings?open=savings" class="mt-3 flex items-center justify-between text-sm text-slate-500 hover:text-slate-900">
+      <span>Savings</span>
+      ${sv.goal_cents ? `<span class="flex-1 max-w-[10rem] mx-3">${bar(Math.max(0, Math.min(100, sv.total_cents / sv.goal_cents * 100)), "rgb(var(--accent))")}</span>` : ""}
+      <span class="tabular text-slate-700">${fmtMoney(sv.total_cents)}${sv.goal_cents ? ` <span class="text-slate-400">of ${fmtMoneyShort(sv.goal_cents)}</span>` : ""}</span></a>` : ""}
   </section>`;
 }
 
@@ -1215,7 +1333,7 @@ function homeNotices(email) {
 }
 
 /** For the first week of a month: a short look back at the one before. Closable. */
-async function monthSummary() {
+async function monthSummary(sv) {
   const today = new Date();
   if (today.getDate() > 7) return "";
   const prev = new Date(today.getFullYear(), today.getMonth() - 1, 1);
@@ -1233,6 +1351,10 @@ async function monthSummary() {
       ? `You spent <b class="text-slate-900">${fmtMoney(o.spent_cents)}</b> of ${fmtMoneyShort(o.limit_cents)}, <b class="text-slate-900">${fmtMoney(o.left_cents)}</b> under budget.`
       : `You spent <b class="text-slate-900">${fmtMoney(o.spent_cents)}</b>, ${fmtMoney(-o.left_cents)} over your ${fmtMoneyShort(o.limit_cents)} budget.`;
   }
+  const saved = sv?.enabled ? sv.months.find((m) => m.month === key) : null;
+  const savedLine = !saved || !saved.saved_cents ? ""
+    : saved.saved_cents > 0 ? ` <b class="text-slate-900">${fmtMoney(saved.saved_cents)}</b> went into your savings.`
+    : ` ${fmtMoney(-saved.saved_cents)} came out of your savings.`;
   const change = d.prev_total_cents > 0 ? Math.round(((o.spent_cents - d.prev_total_cents) / d.prev_total_cents) * 100) : null;
   return `<section data-summary-card="${key}" class="card p-5 sm:p-6 mb-4">
     <div class="flex items-start gap-3">
@@ -1244,7 +1366,7 @@ async function monthSummary() {
     </div>
     <p class="text-sm text-slate-600 mt-2">${verdict}
       ${top ? ` Most went to ${esc(top.name)} (${fmtMoney(top.spent_cents)}).` : ""}
-      ${change != null && Math.abs(change) >= 1 ? ` That's ${Math.abs(change)}% ${change < 0 ? "less" : "more"} than the month before.` : ""}</p>
+      ${change != null && Math.abs(change) >= 1 ? ` That's ${Math.abs(change)}% ${change < 0 ? "less" : "more"} than the month before.` : ""}${savedLine}</p>
     <a href="#/home?date=${isoOf(prev)}" class="link inline-block mt-3">See ${name} →</a>
   </section>`;
 }
@@ -1253,11 +1375,12 @@ let trendsOpen = false;   // remembered while the app is open
 
 async function viewDashboard(root, params) {
   const date = params.get("date") || "";
-  const [glance, d, recent, emailStatus] = await Promise.all([
+  const [glance, d, recent, emailStatus, sv] = await Promise.all([
     api("/api/budgets/status"),
     api(`/api/dashboard?period=month${date ? `&date=${date}` : ""}`),
     api("/api/expenses?limit=5&sort=date&order=desc"),
     api("/api/email/status").catch(() => ({ review_count: 0 })),
+    api("/api/savings").catch(() => null),
   ]);
   const go = (dt) => `#/home${dt ? `?date=${dt}` : ""}`;
   const txLink = (extra = "") => `#/transactions?date_from=${d.start}&date_to=${d.end}${extra}`;
@@ -1277,11 +1400,11 @@ async function viewDashboard(root, params) {
     return;
   }
 
-  const summary = d.is_current ? await monthSummary() : "";
+  const summary = d.is_current ? await monthSummary(sv) : "";
   root.innerHTML = `
     ${homeNotices(emailStatus)}
     ${summary}
-    ${heroCard(glance.month, glance.week)}
+    ${heroCard(glance.month, glance.week, sv)}
 
     <div class="grid lg:grid-cols-2 gap-4 mt-4">
       <section class="card p-5">

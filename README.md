@@ -17,6 +17,7 @@ Your data stays on your Mac. There's no account, no cloud and no tracking.
 - **Budgets.** Weekly and monthly limits overall and per category, with green/amber/red progress bars, "€X left this week" and "€Y per day".
 - **One clear number.** Home shows what's left to spend this month, how much a day that is, and whether you're ahead of or behind plan. Category bars and recent expenses sit underneath, and charts are one tap away.
 - **Monthly bills.** Mark Spotify, the gym or rent as monthly once, and they're added by themselves every month.
+- **Savings.** What's left of each month's budget goes into savings, with an optional goal like a trip.
 - **Looks after itself.** A backup every day, a short look back at last month, and a heads-up if your iPhone Shortcut goes quiet.
 - **Themes.** Light, Dark, Sand, Ocean, Lavender, Rose and Noir, or Automatic to follow your Mac or iPhone.
 - **Imports.** Bank statement CSVs, with column mapping and duplicate detection, and Apple Pay payments emailed by an iPhone Shortcut and read from Gmail.
@@ -122,6 +123,18 @@ When you add something you pay every month (Spotify, the gym, your phone, rent),
 Bills change two things on Home. The per-day amount already sets aside the bills still to come this month ("35 € in bills to come"). And the "more/less than planned so far" check leaves bills out, because they land on a single day and would otherwise make the start of every month look like overspending.
 
 **Settings → Monthly bills** lists them. Change an amount there when a price goes up (it applies from the next bill), or tap ✕ to stop one. Expenses a bill already added stay.
+
+### Savings
+
+Turn it on in **Settings → Savings**. If you already have some savings, enter the amount there.
+
+On the 1st of each month, whatever was left of last month's budget goes into savings. If you overspent, the difference comes off, so the total stays honest. Each month is stored when it ends, using the budget you had then, so changing your budget later doesn't rewrite the past. Counting starts with the month you turn savings on.
+
+- **Goal:** give it a name and an amount ("Lisbon trip, 500 €") to see a progress bar and how much is still to go.
+- **Add or take out:** record money you put aside on top, or take out when you spend it (the trip happens). Each entry can have a short note and can be removed.
+- **On Home:** one line under "This week" shows the total and progress towards your goal. The month-in-review card says how much went into (or came out of) savings.
+
+Turning savings off hides it. Nothing is lost, and turning it on again carries on where it left off.
 
 ### Month in review
 
@@ -375,7 +388,7 @@ Your data and settings are never inside the project folder, so they can't end up
 .venv/bin/python -m pytest
 ```
 
-The tests cover merchant clean-up, every categorization layer (including corrections beating rules, and AI caching and failure), budget maths (Monday weeks, month ends and leap years, the 75%/100% colour thresholds, € left and € per day), the Gmail import (parsing the email line, refusing other senders, never importing twice, duplicates against bank CSVs, the review list, read-only IMAP access, and the app password never reaching the database), phone access (signing in, slowing down password guessing, Mac-only settings, hashed passwords and session tokens, starting and stopping the Wi-Fi server), the quick-add API, monthly bills (short months, catching up on missed months, never adding twice), automatic backups (one a day, keeping the last 14), saving the colour theme, moving data from the old `data/` folder, and the native CSV export. They use temporary folders and never touch your real data.
+The tests cover merchant clean-up, every categorization layer (including corrections beating rules, and AI caching and failure), budget maths (Monday weeks, month ends and leap years, the 75%/100% colour thresholds, € left and € per day), the Gmail import (parsing the email line, refusing other senders, never importing twice, duplicates against bank CSVs, the review list, read-only IMAP access, and the app password never reaching the database), phone access (signing in, slowing down password guessing, Mac-only settings, hashed passwords and session tokens, starting and stopping the Wi-Fi server), the quick-add API, monthly bills (short months, catching up on missed months, never adding twice), automatic backups (one a day, keeping the last 14), savings (counting only finished months from when it was turned on, keeping each month's budget at the time), saving the colour theme, moving data from the old `data/` folder, and the native CSV export. They use temporary folders and never touch your real data.
 
 ## Project layout
 
@@ -395,11 +408,12 @@ app/
   categorizer.py       learned → similar → keyword → AI
   budgets.py           week/month maths, limits, € left / per day
   recurring.py         monthly bills: added on their day, catching up on missed months
+  savings.py           what's left of each finished month + money added or taken out
   backups.py           daily automatic backups (last 14 kept) and "Back up now"
   importer.py          CSV reading, date/amount parsing, duplicate checks
   gmail.py             reading Apple Pay emails over IMAP; Keychain for the app password
   email_sync.py        checks Gmail on launch and every 5 minutes; Needs review
-  routers/             the JSON API (expenses, categories, budgets, dashboard, import/export, preferences, recurring)
+  routers/             the JSON API (expenses, categories, budgets, dashboard, import/export, preferences, recurring, savings)
 static/                the interface (HTML + JS, login page; Tailwind and Chart.js in static/vendor)
   theme.js             colour themes: every colour is a CSS variable the theme sets
 macos/
