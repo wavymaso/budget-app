@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#0f172a">
+  <meta name="theme-color" content="#f8fafc">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Budget">
   <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
@@ -11,56 +11,65 @@
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230f172a'/%3E%3Ctext x='16' y='22' font-size='18' text-anchor='middle' fill='white' font-family='system-ui'%3E€%3C/text%3E%3C/svg%3E">
   <!-- Bundled locally so the app works offline -->
   <script src="/static/vendor/tailwind-3.4.17.js"></script>
+  <script src="/static/theme.js"></script>
   <script src="/static/vendor/chart-4.4.1.umd.js"></script>
   <style type="text/tailwindcss">
     @layer components {
-    .input { @apply w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-base sm:text-sm placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-500; }
-    .btn { @apply inline-flex items-center justify-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium transition disabled:opacity-50 disabled:cursor-not-allowed; }
-    .btn-primary { @apply bg-slate-900 text-white hover:bg-slate-700; }
-    .btn-secondary { @apply bg-white border border-slate-300 text-slate-700 hover:bg-slate-50; }
+    .input { @apply w-full rounded-xl border border-slate-200 bg-surface px-3 py-2 text-base sm:text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent; }
+    .btn { @apply inline-flex items-center justify-center gap-1.5 rounded-xl px-4 py-2 text-sm font-medium transition disabled:opacity-50 disabled:cursor-not-allowed; }
+    .btn-primary { @apply bg-accent text-on-accent hover:opacity-90; }
+    .btn-secondary { @apply bg-surface border border-slate-200 text-slate-700 hover:bg-slate-50; }
     .btn-ghost { @apply text-slate-600 hover:bg-slate-100; }
     .btn-danger { @apply bg-red-600 text-white hover:bg-red-700; }
-    .card { @apply bg-white rounded-2xl border border-slate-200 shadow-sm; }
+    .card { @apply bg-surface rounded-2xl border border-slate-200/70 shadow-sm; }
     .label { @apply block text-xs font-medium text-slate-500 mb-1; }
     .chip { @apply inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm transition select-none; }
+    .link { @apply text-sm text-slate-500 hover:text-slate-900; }
     }
   </style>
   <style>
     body { -webkit-tap-highlight-color: transparent; }
     .tabular { font-variant-numeric: tabular-nums; }
-    .nav-link.active { color: #0f172a; background: #e2e8f0; }
-    .bottom-link.active { color: #0f172a; }
-    .bottom-link.active svg { stroke: #0f172a; }
+    .nav-link.active { color: rgb(var(--slate-900)); background: rgb(var(--slate-100)); }
+    .bottom-link.active { color: rgb(var(--accent)); }
     input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; }
-    .hidden-date { position: absolute; opacity: 0; pointer-events: none; width: 0; height: 0; }
+    summary::-webkit-details-marker { display: none; }
+    /* Category letter badges: a soft tint of the colour; lighter text on dark themes. */
+    .cat-avatar { background: color-mix(in srgb, var(--c) 15%, transparent); color: var(--c); }
+    :root[data-theme="dark"] .cat-avatar { background: color-mix(in srgb, var(--c) 25%, transparent); color: color-mix(in srgb, var(--c) 55%, white); }
+    details[open] > summary [data-chevron] { transform: rotate(90deg); }
+    @media (prefers-reduced-motion: no-preference) {
+      #view > * { animation: fade-in .18s ease-out; }
+      @keyframes fade-in { from { opacity: 0; transform: translateY(4px); } }
+    }
   </style>
 </head>
 <body class="bg-slate-50 text-slate-800 antialiased">
-  <!-- Top bar (desktop nav) -->
-  <header class="sticky top-0 z-20 bg-white/90 backdrop-blur border-b border-slate-200">
-    <div class="max-w-5xl mx-auto px-4 h-14 flex items-center gap-6">
-      <a href="#/dashboard" class="font-semibold text-slate-900 flex items-center gap-2">
-        <span class="inline-flex w-7 h-7 rounded-lg bg-slate-900 text-white items-center justify-center text-sm">€</span>
+  <!-- Top bar -->
+  <header class="sticky top-0 z-20 bg-slate-50/85 backdrop-blur border-b border-slate-200/70">
+    <div class="max-w-4xl mx-auto px-4 h-14 flex items-center gap-6">
+      <a href="#/home" class="font-semibold text-slate-900 flex items-center gap-2">
+        <span class="inline-flex w-7 h-7 rounded-lg bg-accent text-on-accent items-center justify-center text-sm">€</span>
         Budget
       </a>
       <nav id="top-nav" class="hidden sm:flex gap-1 text-sm text-slate-500"></nav>
-      <a href="#/add" class="ml-auto hidden sm:inline-flex items-center gap-1 rounded-lg bg-slate-900 text-white text-sm font-medium px-3 py-1.5 hover:bg-slate-700">
-        <span class="text-lg leading-none">+</span> Add
+      <a href="#/add" class="btn btn-primary ml-auto hidden sm:inline-flex !py-1.5 !px-3" title="Add an expense (N)">
+        <span class="text-lg leading-none">+</span> Add expense
       </a>
     </div>
   </header>
 
-  <main id="view" class="max-w-5xl mx-auto px-4 pt-5 pb-28 sm:pb-10"></main>
+  <main id="view" class="max-w-4xl mx-auto px-4 pt-5 pb-28 sm:pb-12"></main>
 
   <!-- Bottom nav (phone) -->
-  <nav id="bottom-nav" class="sm:hidden fixed bottom-0 inset-x-0 z-20 bg-white border-t border-slate-200 grid grid-cols-5 text-[11px] text-slate-400"
+  <nav id="bottom-nav" class="sm:hidden fixed bottom-0 inset-x-0 z-20 bg-surface/95 backdrop-blur border-t border-slate-200 grid grid-cols-4 text-[11px] text-slate-400"
        style="padding-bottom: env(safe-area-inset-bottom, 0px)"></nav>
 
   <!-- Modal -->
-  <div id="modal" class="hidden fixed inset-0 z-30 bg-slate-900/40 flex items-end sm:items-center justify-center p-0 sm:p-4">
-    <div class="bg-white w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl shadow-xl max-h-[92vh] overflow-y-auto">
+  <div id="modal" class="hidden fixed inset-0 z-30 bg-slate-950/40 flex items-end sm:items-center justify-center p-0 sm:p-4">
+    <div class="bg-surface w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl shadow-xl max-h-[92vh] overflow-y-auto">
       <div class="flex items-center justify-between px-5 pt-4">
-        <h2 id="modal-title" class="font-semibold text-lg"></h2>
+        <h2 id="modal-title" class="font-semibold text-lg text-slate-900"></h2>
         <button id="modal-close" class="text-slate-400 hover:text-slate-700 text-2xl leading-none px-2" aria-label="Close">&times;</button>
       </div>
       <div id="modal-body" class="p-5"></div>
@@ -68,7 +77,10 @@
   </div>
 
   <!-- Toast -->
-  <div id="toast" class="hidden fixed left-1/2 -translate-x-1/2 bottom-24 sm:bottom-6 z-40 bg-slate-900 text-white text-sm rounded-lg px-4 py-2 shadow-lg"></div>
+  <div id="toast" role="status" class="hidden fixed left-1/2 -translate-x-1/2 bottom-24 sm:bottom-6 z-40 flex items-center gap-3 text-sm rounded-xl pl-4 pr-2 py-2 shadow-lg max-w-[calc(100vw-2rem)]">
+    <span data-msg></span>
+    <button data-action class="hidden rounded-lg px-2 py-1 font-semibold underline-offset-2 hover:underline"></button>
+  </div>
 
   <script src="/static/app.js"></script>
 </body>

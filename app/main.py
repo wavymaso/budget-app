@@ -8,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from . import auth, config, server
 from .db import connect, init_db
 from .routers import auth as auth_routes
-from .routers import budgets, categories, categorize, dashboard, email, expenses, io
+from .routers import budgets, categories, categorize, dashboard, email, expenses, io, preferences
 
 
 @asynccontextmanager
@@ -56,6 +56,7 @@ app.include_router(dashboard.router)
 app.include_router(io.router)
 app.include_router(email.router)
 app.include_router(auth_routes.router)
+app.include_router(preferences.router)
 
 
 @app.get("/api/status")

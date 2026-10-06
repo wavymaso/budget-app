@@ -5,9 +5,9 @@ A personal budget tracker for your Mac. It's a real app with its own window and 
 Your data stays on your Mac. There's no account, no cloud and no tracking.
 
 <p align="center">
-  <img src="docs/dashboard.png" alt="Dashboard: this week and this month against their limits, spending by category, limits per category and daily spending" width="720">
+  <img src="docs/dashboard.png" alt="Home: what's left to spend this month, this week in one line, where the money went and recent expenses" width="720">
   &nbsp;
-  <img src="docs/add-phone.png" alt="Adding an expense: the category is suggested as you type the merchant" width="200">
+  <img src="docs/add-phone.png" alt="Adding an expense: frequent merchants are one tap away and the most-used categories come first" width="200">
 </p>
 
 **What it does**
@@ -15,7 +15,8 @@ Your data stays on your Mac. There's no account, no cloud and no tracking.
 - **On your phone too.** Use the whole app in Safari on your home Wi-Fi, protected by a password.
 - **Quick entry.** Type the amount and merchant, and the category is suggested as you type. It learns from every correction, and recognises common Spanish merchants (Mercadona, Glovo, Metro, Renfe, Zara…) out of the box.
 - **Budgets.** Weekly and monthly limits overall and per category, with green/amber/red progress bars, "€X left this week" and "€Y per day".
-- **Dashboard.** Spending by category, day by day and month by month, plus your top merchants. Step back through earlier weeks and months.
+- **One clear number.** Home shows what's left to spend this month, how much a day that is, and whether you're ahead of or behind plan. Category bars and recent expenses sit underneath, and charts are one tap away.
+- **Themes.** Light, Dark, Sand, Ocean and Lavender, or Automatic to follow your Mac or iPhone.
 - **Imports.** Bank statement CSVs, with column mapping and duplicate detection, and Apple Pay payments emailed by an iPhone Shortcut and read from Gmail.
 - **Optional AI.** With a Claude API key, merchants it doesn't recognise get a suggested category.
 - Euros, weeks start on Monday, dates as DD/MM/YYYY.
@@ -83,11 +84,12 @@ python3 run.py --browser  # no window: serve at http://localhost:8000 for a norm
 
 | Page | What it's for |
 |---|---|
-| **Dashboard** | This week and this month at a glance: how much you've spent against your limit, what's left, € per day, and days left. Switch between Week and Month and use ‹ › to go back to earlier periods. It shows spending by category, daily bars, month-by-month totals and your top merchants. Click anything to see the matching transactions. |
-| **Add** | Quick form: amount, merchant, date (defaults to today) and an optional note. Tick "refund" for money back. |
-| **Transactions** | Search, filter by category or dates, sort, and tap any row to edit or delete it. |
-| **Import** | Bring in a CSV from your bank (section 5). |
-| **Settings** | Weekly and monthly limits, categories (rename, recolour, reorder, delete), learned merchants, backups and export. |
+| **Home** | What's left to spend this month, about how much a day that is, and whether you're spending more or less than planned so far. This week is one line underneath. **Where it went** shows a bar per category (against its limit if it has one), and ‹ goes back to earlier months. **Recent** lists your last five expenses. **Show trends** opens month-by-month and day-by-day charts and the places you spend most. Tap anything to see the matching transactions. |
+| **+** | Add an expense: amount, where, category and date. Your most frequent merchants are one tap away, and the categories you use most come first. A note and the refund tick are under **More options**. On the Mac, press **N** from anywhere. |
+| **Transactions** | Everything you've spent, grouped by day with a total for each day. Search at the top, and **Filters** for category, dates and order. Tap a row to edit or delete it (deleting can be undone). **Import** brings in a bank CSV (section 5). |
+| **Settings** | A short list that opens one section at a time: Appearance, Budget, Categories (with learned merchants), Apple Pay via Gmail, Use on your phone, Your data, and About. |
+
+**Themes:** **Settings → Appearance** has Light, Dark, Sand, Ocean and Lavender, plus **Automatic**, which follows your Mac or iPhone's light and dark mode. The choice is saved with your data, so it stays the same after a restart and on your phone.
 
 Dates are shown as DD/MM/YYYY, weeks start on Monday, and amounts are in euros. You can type amounts as `12,50` or `12.50`.
 
@@ -101,20 +103,20 @@ As you type a merchant, the app suggests a category and shows a small tag saying
 4. **AI.** Claude's guess. This only happens when an API key is set.
 5. If nothing matches, the expense is **Uncategorized**. Pick a category and it's remembered for next time.
 
-Names are cleaned up before matching, so `MERCADONA MADRID 4521`, `Compra en MERCADONA, S.A.` and `Mercadona` all count as the same merchant. You can review or change everything the app has learned in **Settings → Learned merchants**.
+Names are cleaned up before matching, so `MERCADONA MADRID 4521`, `Compra en MERCADONA, S.A.` and `Mercadona` all count as the same merchant. You can review or change everything the app has learned in **Settings → Categories → Learned merchants**.
 
 ## 4. Budgets
 
-In **Settings → Budgets & limits**, set an overall weekly and/or monthly limit, plus optional limits per category. Each box saves as soon as you leave it, and an empty box means no limit.
+In **Settings → Budget**, set a monthly and/or weekly limit for everything. Limits for single categories are optional, under **Limits per category**. Each box saves as soon as you leave it, and an empty box means no limit.
 
-Progress bars are **green** under 75%, **amber** from 75% to 100%, and **red** when you're over. The dashboard also shows "€X left this week" and how much you can spend per day until the end of the week or month (today included).
+Progress bars are **green** under 75%, **amber** from 75% to 100%, and **red** when you're over. Home shows what's left, how much you can spend per day until the end of the month (today included), and how you compare with an even pace: with a 600 € budget, by day 10 of a 30-day month you'd "plan" to have spent 200 €.
 
 Refunds count as negative spending, so they give you budget back.
 
 ## 5. Importing a bank CSV
 
 1. Download your card movements as CSV from your bank's website.
-2. Go to **Import** and choose the file.
+2. Go to **Transactions → Import** (or **Settings → Your data → Import a bank statement**) and choose the file.
 3. Check which columns are the **date**, **description** and **amount**. The app guesses, and it remembers your choice for the next file with the same columns.
 4. Say whether spending appears as negative numbers (most Spanish banks: `-12,50`) or positive ones.
 5. Click **Preview import**. Each row is categorised automatically. Change any category you disagree with, and the app will learn it.
@@ -217,7 +219,7 @@ IMAP has to be on. On most accounts it always is; if Gmail's **Settings → See 
 
 ### Step 4: connect Budget
 
-1. Open Budget and go to **Settings → Gmail import**.
+1. Open Budget and go to **Settings → Apple Pay via Gmail**.
 2. Enter your Gmail address and the app password, and leave the label as `Budget`.
 3. Click **Test connection**. It tells you plainly whether it worked, and if not, why:
 
@@ -236,7 +238,7 @@ The app password is stored in the **macOS Keychain** (as "Budget – Gmail app p
 ### What happens to each email
 
 - **Imported.** The expense is added and categorized like any other. A notice says "*N new transactions imported*".
-- **Needs review.** The email shows up at the top of the **Import** page, and the dashboard and the Import tab show a badge. This happens when the merchant is blank, the amount is 0 €, the amount is in another currency, there's no transaction line at all, or **it looks like an expense you already have**: the same amount, a similar merchant, within a day, from a bank CSV or typed by hand. Fix the fields and click **Add expense**, or **Dismiss** it.
+- **Needs review.** The email shows up at the top of the **Import** page, and Home, the Transactions page and the Transactions tab show a notice or badge. This happens when the merchant is blank, the amount is 0 €, the amount is in another currency, there's no transaction line at all, or **it looks like an expense you already have**: the same amount, a similar merchant, within a day, from a bank CSV or typed by hand. Fix the fields and click **Add expense**, or **Dismiss** it.
 - **Refused.** The email wasn't sent from your own Gmail address, or Gmail flagged its sender as forged. It's never imported.
 
 Each email is remembered by its Message-ID, so nothing is ever imported twice, even if you click **Check now** repeatedly or Gmail renumbers the label. It works the other way too: when you later import a bank CSV, payments that already came in by email are flagged as duplicates in the preview.
@@ -245,11 +247,11 @@ Each email is remembered by its Message-ID, so nothing is ever imported twice, e
 
 ## 8. Using Budget on your phone (Wi-Fi)
 
-While Budget is open on your Mac, you can use the whole app on your phone in Safari, on the same Wi-Fi: the dashboard, adding expenses, transactions, everything.
+While Budget is open on your Mac, you can use the whole app on your phone in Safari, on the same Wi-Fi: Home, adding expenses, transactions, everything.
 
 ### Turn it on (on the Mac)
 
-1. In Budget, go to **Settings → Phone access**.
+1. In Budget, go to **Settings → Use on your phone**.
 2. Choose a password for your phone (at least 6 characters).
 3. Tick **Let phones on this Wi-Fi open Budget** and click **Save**.
 4. The section turns green and shows the address to open, for example:
@@ -275,7 +277,7 @@ Budget must be open on your Mac for this to work. The Mac does the work; the pho
 
 - **Phones must sign in.** The Mac's own window never asks. Five wrong passwords lock that device out for 10 minutes.
 - **Mac-only settings.** A signed-in phone can do everything except change phone access, the password or the Gmail settings. Those only work on the Mac.
-- **Signing out.** **Settings → Phone access** lists every signed-in device, with **Sign out all**. Changing the password signs every phone out too. A phone can sign itself out under **Settings → This device**.
+- **Signing out.** **Settings → Use on your phone** lists every signed-in device, with **Sign out all**. Changing the password signs every phone out too. A phone can sign itself out under **Settings → This device**.
 - **What's stored.** The password is saved only as a salted hash, never readable. The phone gets a random sign-in cookie, of which only a hash is stored.
 - **Not encrypted.** The connection is plain `http` on your local network. That's fine at home, but **switch phone access off on shared Wi-Fi** (university, cafés, hotels), where other people on the network could in principle read the traffic.
 
@@ -344,7 +346,7 @@ Your Mac must be awake, with Budget open, for the Shortcut to work.
 
 - **Back up:** go to **Settings → Your data → Back up now**. This saves a timestamped copy such as `backups/budget-2026-10-04_17-49-49.db` next to the database. It's safe to do while the app is open. For extra safety, copy the whole `~/Library/Application Support/Budget` folder to iCloud Drive or a USB stick now and then.
 - **Restore:** quit Budget. In `~/Library/Application Support/Budget`, move `budget.db` aside and delete `budget.db-wal` and `budget.db-shm` if they exist. Copy the backup you want to `budget.db` and open Budget again.
-- **Export:** **Settings → Export all to CSV** or **Transactions → Export CSV** opens a Save dialog. The file uses `;` separators and decimal commas, so it opens correctly in Spanish-language Excel and Numbers.
+- **Export:** **Settings → Your data → Export all to CSV** opens a Save dialog. The file uses `;` separators and decimal commas, so it opens correctly in Spanish-language Excel and Numbers.
 
 Your data and settings are never inside the project folder, so they can't end up on GitHub. `data/`, `.env`, `build/` and `dist/` are also in `.gitignore`.
 
@@ -354,7 +356,7 @@ Your data and settings are never inside the project folder, so they can't end up
 .venv/bin/python -m pytest
 ```
 
-The tests cover merchant clean-up, every categorization layer (including corrections beating rules, and AI caching and failure), budget maths (Monday weeks, month ends and leap years, the 75%/100% colour thresholds, € left and € per day), the Gmail import (parsing the email line, refusing other senders, never importing twice, duplicates against bank CSVs, the review list, read-only IMAP access, and the app password never reaching the database), phone access (signing in, slowing down password guessing, Mac-only settings, hashed passwords and session tokens, starting and stopping the Wi-Fi server), the quick-add API, moving data from the old `data/` folder, and the native CSV export. They use temporary folders and never touch your real data.
+The tests cover merchant clean-up, every categorization layer (including corrections beating rules, and AI caching and failure), budget maths (Monday weeks, month ends and leap years, the 75%/100% colour thresholds, € left and € per day), the Gmail import (parsing the email line, refusing other senders, never importing twice, duplicates against bank CSVs, the review list, read-only IMAP access, and the app password never reaching the database), phone access (signing in, slowing down password guessing, Mac-only settings, hashed passwords and session tokens, starting and stopping the Wi-Fi server), the quick-add API, saving the colour theme, moving data from the old `data/` folder, and the native CSV export. They use temporary folders and never touch your real data.
 
 ## Project layout
 
@@ -376,8 +378,9 @@ app/
   importer.py          CSV reading, date/amount parsing, duplicate checks
   gmail.py             reading Apple Pay emails over IMAP; Keychain for the app password
   email_sync.py        checks Gmail on launch and every 5 minutes; Needs review
-  routers/             the JSON API (expenses, categories, budgets, dashboard, import/export)
+  routers/             the JSON API (expenses, categories, budgets, dashboard, import/export, preferences)
 static/                the interface (HTML + JS, login page; Tailwind and Chart.js in static/vendor)
+  theme.js             colour themes: every colour is a CSS variable the theme sets
 macos/
   Budget.spec          PyInstaller recipe
   launcher.py          entry point inside the app

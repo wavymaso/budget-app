@@ -17,6 +17,8 @@ const state = {
 
 const eurFormat = new Intl.NumberFormat("es-ES", { style: "currency", currency: "EUR" });
 const fmtMoney = (cents) => eurFormat.format((cents || 0) / 100);
+/** Like fmtMoney, without ",00" on whole euros: "600 €". */
+const fmtMoneyShort = (cents) => fmtMoney(cents).replace(/,00(?=\D*$)/, "");
 
 const pad = (n) => String(n).padStart(2, "0");
 const isoOf = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -113,13 +115,18 @@ document.addEventListener("click", async (e) => {
   } catch (err) { toast(`Export failed: ${err.message || err}`, "error"); }
 });
 
-function toast(msg, kind = "ok", ms = null) {
+/** A short message at the bottom. `action` adds a button, e.g. { label: "Undo", run }. */
+function toast(msg, kind = "ok", ms = null, action = null) {
   const el = $("#toast");
-  el.textContent = msg;
-  el.className = el.className.replace(/bg-\S+/g, "") + (kind === "error" ? " bg-red-600" : " bg-slate-900");
-  el.classList.remove("hidden");
+  $("[data-msg]", el).textContent = msg;
+  el.classList.remove("hidden", "bg-red-600", "text-white", "bg-slate-900", "text-slate-50");
+  el.classList.add(...(kind === "error" ? ["bg-red-600", "text-white"] : ["bg-slate-900", "text-slate-50"]));
+  const btn = $("[data-action]", el);
+  btn.classList.toggle("hidden", !action);
+  btn.textContent = action?.label || "";
+  btn.onclick = action ? () => { el.classList.add("hidden"); action.run(); } : null;
   clearTimeout(toast.t);
-  toast.t = setTimeout(() => el.classList.add("hidden"), ms ?? (kind === "error" ? 5000 : 2500));
+  toast.t = setTimeout(() => el.classList.add("hidden"), ms ?? (action ? 6000 : kind === "error" ? 5000 : 2500));
 }
 
 function openModal(title, contentEl) {
@@ -162,12 +169,21 @@ function sourceTag(source) {
   return t ? `<span class="rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${t[1]}">${t[0]}</span>` : "";
 }
 
-function categoryBadge(e) {
-  if (!e.category_id) {
-    return `<span class="inline-flex items-center gap-1 text-xs text-amber-700 bg-amber-50 rounded px-1.5 py-0.5">Uncategorized</span>`;
-  }
-  return `<span class="inline-flex items-center gap-1.5 text-xs text-slate-500">
-    <span class="w-2 h-2 rounded-full" style="background:${esc(e.category_color)}"></span>${esc(e.category_name)}</span>`;
+/** A round badge in the category's colour with its first letter. */
+function categoryAvatar(name, color) {
+  if (!name) return `<span class="w-9 h-9 shrink-0 rounded-full bg-amber-100 text-amber-700 inline-flex items-center justify-center text-sm font-semibold">?</span>`;
+  return `<span class="cat-avatar w-9 h-9 shrink-0 rounded-full inline-flex items-center justify-center text-sm font-semibold"
+    style="--c:${esc(color)}">${esc([...name][0].toUpperCase())}</span>`;
+}
+
+const weekdayLong = new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short" });
+/** "Today", "Yesterday", or "Mon 5 Oct". */
+function friendlyDate(iso) {
+  if (iso === todayISO()) return "Today";
+  if (iso === addDaysISO(todayISO(), -1)) return "Yesterday";
+  const [y, m, d] = iso.split("-").map(Number);
+  const label = weekdayLong.format(new Date(y, m - 1, d));
+  return y === new Date().getFullYear() ? label : `${label} ${y}`;
 }
 
 const ICONS = {
@@ -208,8 +224,13 @@ function destroyCharts() {
    Expense form (used by "Add" and the edit dialog)
    ======================================================================== */
 
-function expenseForm({ expense = null, onSaved }) {
+/** Categories you use most first; the add form shows the top few. */
+const categoriesByUse = () => [...state.categories].sort((a, b) => (b.expense_count || 0) - (a.expense_count || 0));
+const TOP_CHIPS = 5;
+
+function expenseForm({ expense = null, onSaved, merchants = [] }) {
   const isEdit = !!expense;
+  const hasExtras = !!(expense?.note || expense?.amount_cents < 0);
   const id = uid();
   const f = {
     categoryId: expense ? expense.category_id : null,
@@ -217,6 +238,7 @@ function expenseForm({ expense = null, onSaved }) {
     // Once you tap a category yourself, suggestions stop overriding it.
     userPicked: isEdit && expense.category_id != null,
     seq: 0,
+    showAll: false,
   };
   const amountValue = expense ? (Math.abs(expense.amount_cents) / 100).toFixed(2).replace(".", ",") : "";
 
@@ -231,15 +253,14 @@ function expenseForm({ expense = null, onSaved }) {
                inputmode="decimal" autocomplete="off" placeholder="0,00" value="${amountValue}">
         <span class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-xl">€</span>
       </div>
-      <label class="mt-2 inline-flex items-center gap-2 text-xs text-slate-500 cursor-pointer">
-        <input type="checkbox" name="refund" class="rounded border-slate-300" ${expense?.amount_cents < 0 ? "checked" : ""}>
-        This is a refund (money back)
-      </label>
     </div>
     <div>
-      <label class="label" for="${id}-merchant">Merchant / description</label>
+      <label class="label" for="${id}-merchant">Where?</label>
       <input id="${id}-merchant" name="merchant" class="input" autocomplete="off" autocapitalize="words"
              placeholder="e.g. Mercadona" value="${esc(expense?.merchant || "")}">
+      ${merchants.length ? `<div data-merchants class="flex flex-wrap gap-1.5 mt-2">
+        ${merchants.map((m) => `<button type="button" data-merchant="${esc(m)}" class="rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs px-2.5 py-1">${esc(m)}</button>`).join("")}
+      </div>` : ""}
     </div>
     <div>
       <div class="flex items-center gap-2 mb-1.5 min-h-[20px]">
@@ -249,38 +270,56 @@ function expenseForm({ expense = null, onSaved }) {
       <div data-chips class="flex flex-wrap gap-2"></div>
       <p data-hint class="hidden text-xs text-amber-700 mt-2"></p>
     </div>
-    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-      <div>
-        <label class="label">Date</label>
-        ${dateField("date", expense?.date || todayISO())}
-        <div class="flex gap-2 mt-2">
-          <button type="button" data-day="0" class="text-xs text-slate-500 hover:text-slate-900 underline-offset-2 hover:underline">Today</button>
-          <button type="button" data-day="-1" class="text-xs text-slate-500 hover:text-slate-900 underline-offset-2 hover:underline">Yesterday</button>
-        </div>
-      </div>
-      <div>
-        <label class="label" for="${id}-note">Note <span class="font-normal text-slate-400">(optional)</span></label>
-        <input id="${id}-note" name="note" class="input" autocomplete="off" value="${esc(expense?.note || "")}">
+    <div>
+      <label class="label">When?</label>
+      <div class="flex items-center gap-2">
+        <div class="flex-1 min-w-0 sm:flex-none sm:w-44">${dateField("date", expense?.date || todayISO())}</div>
+        <button type="button" data-day="0" class="chip shrink-0 border-slate-200 text-slate-600 hover:border-slate-400 !px-2.5">Today</button>
+        <button type="button" data-day="-1" class="chip shrink-0 border-slate-200 text-slate-600 hover:border-slate-400 !px-2.5">Yesterday</button>
       </div>
     </div>
+    <details ${hasExtras ? "open" : ""} class="group">
+      <summary class="cursor-pointer list-none text-sm text-slate-500 hover:text-slate-900 inline-flex items-center gap-1">
+        <span data-chevron class="transition-transform inline-block">›</span> More options
+      </summary>
+      <div class="mt-3 space-y-3">
+        <div>
+          <label class="label" for="${id}-note">Note</label>
+          <input id="${id}-note" name="note" class="input" autocomplete="off" value="${esc(expense?.note || "")}">
+        </div>
+        <label class="inline-flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
+          <input type="checkbox" name="refund" class="rounded border-slate-300" ${expense?.amount_cents < 0 ? "checked" : ""}>
+          This is a refund (money back)
+        </label>
+      </div>
+    </details>
     <p data-error class="hidden text-sm text-red-600"></p>
     <div data-actions class="flex flex-wrap items-center gap-2">
-      <button type="submit" class="btn btn-primary py-3 sm:py-2 flex-1 sm:flex-none">${isEdit ? "Save changes" : "Add expense"}</button>
+      <button type="submit" class="btn btn-primary py-3 flex-1 sm:flex-none sm:px-8">${isEdit ? "Save changes" : "Add expense"}</button>
     </div>`;
   wireDateFields(el);
 
   const chips = $("[data-chips]", el);
   function renderChips() {
-    chips.innerHTML = state.categories.map((c) => {
+    const ordered = categoriesByUse();
+    let shown = ordered;
+    if (!f.showAll && ordered.length > TOP_CHIPS + 1) {
+      shown = ordered.slice(0, TOP_CHIPS);
+      const picked = categoryById(f.categoryId);
+      if (picked && !shown.includes(picked)) shown.push(picked);
+    }
+    chips.innerHTML = shown.map((c) => {
       const on = c.id === f.categoryId;
-      return `<button type="button" data-cat="${c.id}" class="chip ${on ? "text-white border-transparent shadow-sm" : "bg-white border-slate-200 text-slate-700 hover:border-slate-400"}"
+      return `<button type="button" data-cat="${c.id}" class="chip ${on ? "text-white border-transparent shadow-sm" : "bg-surface border-slate-200 text-slate-700 hover:border-slate-400"}"
                 style="${on ? `background:${esc(c.color)}` : ""}">
           <span class="w-2 h-2 rounded-full ${on ? "bg-white/80" : ""}" style="${on ? "" : `background:${esc(c.color)}`}"></span>${esc(c.name)}
         </button>`;
-    }).join("");
+    }).join("") + (shown.length < ordered.length
+      ? `<button type="button" data-more-cats class="chip border-dashed border-slate-300 text-slate-500 hover:text-slate-900">${ordered.length - shown.length} more…</button>` : "");
     $("[data-tag]", el).innerHTML = f.categoryId && !f.userPicked ? sourceTag(f.source) : "";
   }
   chips.addEventListener("click", (e) => {
+    if (e.target.closest("[data-more-cats]")) { f.showAll = true; renderChips(); return; }
     const b = e.target.closest("[data-cat]");
     if (!b) return;
     const cid = Number(b.dataset.cat);
@@ -320,6 +359,13 @@ function expenseForm({ expense = null, onSaved }) {
   const slowSuggest = debounce(() => { if (!f.categoryId) suggest(true); }, 900);
   el.merchant.addEventListener("input", () => { quickSuggest(); slowSuggest(); });
   el.merchant.addEventListener("blur", () => { if (!f.categoryId && el.merchant.value.trim()) suggest(true); });
+  $("[data-merchants]", el)?.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-merchant]");
+    if (!b) return;
+    el.merchant.value = b.dataset.merchant;
+    suggest(false);
+    if (!el.amount.value) el.amount.focus();
+  });
 
   $$("[data-day]", el).forEach((b) => b.addEventListener("click", () => {
     el.date.value = fmtDate(addDaysISO(todayISO(), Number(b.dataset.day)));
@@ -367,7 +413,7 @@ function expenseForm({ expense = null, onSaved }) {
     el.merchant.value = "";
     el.note.value = "";
     el.refund.checked = false;
-    f.categoryId = null; f.source = null; f.userPicked = false; f.seq++;
+    f.categoryId = null; f.source = null; f.userPicked = false; f.showAll = false; f.seq++;
     hint(""); showError(""); renderChips();
     el.amount.focus();
   };
@@ -395,27 +441,34 @@ function openEditExpense(expense, onChange) {
     }
     await api(`/api/expenses/${expense.id}`, { method: "DELETE" });
     closeModal();
-    toast("Expense deleted");
     onChange?.();
+    toast("Expense deleted", "ok", null, { label: "Undo", run: async () => {
+      await api("/api/expenses", { method: "POST", body: {
+        amount: (expense.amount_cents / 100).toFixed(2), merchant: expense.merchant, date: expense.date,
+        note: expense.note || null, category_id: expense.category_id,
+        category_source: expense.category_id ? (expense.category_source || "manual") : null,
+      } });
+      toast("Expense restored");
+      onChange?.();
+    } });
   });
   actions.append(del);
   openModal("Edit expense", form);
 }
 
-function expenseRow(e) {
+function expenseRow(e, { showDate = true } = {}) {
   const refund = e.amount_cents < 0;
+  // Each part is HTML-safe already.
+  const details = [e.category_name ? esc(e.category_name) : `<span class="text-amber-700">Needs a category</span>`];
+  if (showDate) details.push(friendlyDate(e.date));
+  if (e.note) details.push(esc(e.note));
   return `<button type="button" data-expense="${e.id}" class="w-full text-left flex items-center gap-3 px-4 py-3 hover:bg-slate-50 focus:bg-slate-50 focus:outline-none">
+    ${categoryAvatar(e.category_name, e.category_color)}
     <div class="min-w-0 flex-1">
       <div class="font-medium text-slate-900 truncate">${esc(e.merchant)}</div>
-      <div class="flex items-center gap-2 mt-0.5 min-w-0">
-        ${categoryBadge(e)}
-        ${e.note ? `<span class="text-xs text-slate-400 truncate">· ${esc(e.note)}</span>` : ""}
-      </div>
+      <div class="text-xs text-slate-500 truncate mt-0.5">${details.join(" · ")}</div>
     </div>
-    <div class="text-right shrink-0">
-      <div class="font-semibold tabular ${refund ? "text-emerald-600" : "text-slate-900"}">${refund ? "+" : ""}${fmtMoney(Math.abs(e.amount_cents))}</div>
-      <div class="text-xs text-slate-400 tabular">${fmtDate(e.date)}</div>
-    </div>
+    <div class="font-semibold tabular shrink-0 ${refund ? "text-emerald-600" : "text-slate-900"}">${refund ? "+" : ""}${fmtMoney(Math.abs(e.amount_cents))}</div>
   </button>`;
 }
 
@@ -432,106 +485,140 @@ function wireExpenseRows(root, items, onChange) {
    Views
    ======================================================================== */
 
+/** Merchants you've used most lately, for one-tap filling. */
+async function frequentMerchants(n = 6) {
+  try {
+    const { items } = await api("/api/expenses?limit=150&sort=date&order=desc");
+    const counts = new Map();
+    for (const e of items) if (e.amount_cents > 0) counts.set(e.merchant, (counts.get(e.merchant) || 0) + 1);
+    return [...counts].filter(([, c]) => c > 1).sort((a, b) => b[1] - a[1]).slice(0, n).map(([m]) => m);
+  } catch { return []; }
+}
+
 async function viewAdd(root) {
   root.innerHTML = `
-    <div class="grid lg:grid-cols-5 gap-6">
-      <section class="lg:col-span-3">
-        <h1 class="text-xl font-semibold mb-4">Add expense</h1>
-        <div class="card p-5" data-form></div>
-      </section>
-      <section class="lg:col-span-2">
-        <div class="flex items-baseline justify-between mb-4 lg:mt-1">
-          <h2 class="font-semibold">Recent</h2>
-          <a href="#/transactions" class="text-sm text-slate-500 hover:text-slate-900">See all →</a>
-        </div>
-        <div class="card divide-y divide-slate-100 overflow-hidden" data-recent></div>
-      </section>
+    <div class="max-w-lg mx-auto">
+      <h1 class="text-xl font-semibold text-slate-900 mb-4">Add expense</h1>
+      <div class="card p-5" data-form></div>
     </div>`;
-  const recent = $("[data-recent]", root);
-  let items = [];
-  async function loadRecent() {
-    const data = await api("/api/expenses?limit=6&sort=date&order=desc");
-    items = data.items;
-    recent.innerHTML = items.length
-      ? items.map(expenseRow).join("")
-      : `<p class="p-5 text-sm text-slate-400">Nothing yet. Your expenses will show up here.</p>`;
-  }
-  wireExpenseRows(recent, { find: (fn) => items.find(fn) }, loadRecent);
-
   const form = expenseForm({
-    onSaved: (saved) => {
-      toast(`Added ${fmtMoney(Math.abs(saved.amount_cents))} · ${saved.merchant}`);
+    merchants: await frequentMerchants(),
+    onSaved: async (saved) => {
       form.clearForm();
-      loadRecent();
+      await loadCategories();   // keeps the "most used" chips up to date
+      toast(`Added ${fmtMoney(Math.abs(saved.amount_cents))} · ${saved.merchant}`, "ok", null, {
+        label: "Undo",
+        run: async () => { await api(`/api/expenses/${saved.id}`, { method: "DELETE" }); toast("Removed"); },
+      });
     },
   });
   $("[data-form]", root).append(form);
-  await loadRecent();
   setTimeout(() => form.amount.focus(), 0);
 }
 
 async function viewTransactions(root, params) {
   const F = state.txFilters;
-  // Links from the dashboard can pre-set filters: #/transactions?category_id=3&date_from=...
+  const FILTER_KEYS = ["q", "category_id", "date_from", "date_to"];
+  // Links from Home can pre-set filters: #/transactions?category_id=3&date_from=...
   if ([...params.keys()].length) {
     Object.assign(F, { q: "", category_id: "", date_from: "", date_to: "" });
-    for (const k of ["q", "category_id", "date_from", "date_to"]) if (params.has(k)) F[k] = params.get(k);
+    for (const k of FILTER_KEYS) if (params.has(k)) F[k] = params.get(k);
   }
+  const activeFilters = () => ["category_id", "date_from", "date_to"].filter((k) => F[k]).length + (F.sort !== "date:desc" ? 1 : 0);
+  const review = (await api("/api/email/status").catch(() => ({ review_count: 0 }))).review_count;
+
   root.innerHTML = `
-    <div class="flex items-center justify-between mb-4">
-      <h1 class="text-xl font-semibold">Transactions</h1>
-      <a href="/api/export.csv" data-export class="btn btn-secondary">Export CSV</a>
+    <div class="flex items-center justify-between gap-2 mb-4">
+      <h1 class="text-xl font-semibold text-slate-900">Transactions</h1>
+      <a href="#/import" class="btn btn-secondary !py-1.5">Import${review ? ` <span class="rounded-full bg-amber-500 text-white text-[10px] font-semibold px-1.5">${review}</span>` : ""}</a>
     </div>
-    <div class="card p-4 mb-4">
-      <div class="grid grid-cols-2 md:grid-cols-12 gap-3">
-        <div class="col-span-2 md:col-span-4">
-          <label class="label">Search</label>
-          <input name="q" class="input" placeholder="Merchant, note, category…" value="${esc(F.q)}">
-        </div>
-        <div class="col-span-2 md:col-span-3">
+    ${review ? `<a href="#/import" class="flex items-center gap-3 mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 hover:bg-amber-100">
+      <span class="flex-1">${plural(review, "payment from your iPhone needs", "payments from your iPhone need")} a quick check</span>
+      <span class="font-medium">Review →</span></a>` : ""}
+    <div class="flex gap-2 mb-3">
+      <div class="relative flex-1">
+        <svg class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input name="q" class="input !pl-9" placeholder="Search" value="${esc(F.q)}" autocomplete="off">
+      </div>
+      <button type="button" data-toggle-filters class="btn btn-secondary shrink-0">Filters<span data-filter-count></span></button>
+    </div>
+    <div data-filters class="hidden card p-4 mb-3">
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div class="col-span-2 sm:col-span-1">
           <label class="label">Category</label>
           <select name="category_id" class="input">${categoryOptions(F.category_id)}</select>
         </div>
-        <div class="md:col-span-2"><label class="label">From</label>${dateField("date_from", F.date_from)}</div>
-        <div class="md:col-span-2"><label class="label">To</label>${dateField("date_to", F.date_to)}</div>
-        <div class="col-span-2 md:col-span-1 flex items-end">
-          <button type="button" data-clear class="btn btn-ghost w-full">Clear</button>
+        <div><label class="label">From</label>${dateField("date_from", F.date_from)}</div>
+        <div><label class="label">To</label>${dateField("date_to", F.date_to)}</div>
+        <div class="col-span-2 sm:col-span-1">
+          <label class="label">Order</label>
+          <select name="sort" class="input">
+            <option value="date:desc">Newest first</option>
+            <option value="date:asc">Oldest first</option>
+            <option value="amount:desc">Biggest first</option>
+            <option value="amount:asc">Smallest first</option>
+            <option value="merchant:asc">Merchant A–Z</option>
+          </select>
         </div>
       </div>
+      <button type="button" data-clear class="link mt-3">Clear filters</button>
     </div>
-    <div class="flex flex-wrap items-center justify-between gap-2 mb-2 px-1">
-      <p data-summary class="text-sm text-slate-500"></p>
-      <select name="sort" class="input !w-auto !py-1.5 text-sm">
-        <option value="date:desc">Newest first</option>
-        <option value="date:asc">Oldest first</option>
-        <option value="amount:desc">Amount: high to low</option>
-        <option value="amount:asc">Amount: low to high</option>
-        <option value="merchant:asc">Merchant A–Z</option>
-        <option value="category:asc">Category A–Z</option>
-      </select>
-    </div>
-    <div class="card divide-y divide-slate-100 overflow-hidden" data-list></div>
+    <p data-summary class="text-sm text-slate-500 mb-2 px-1"></p>
+    <div data-list class="space-y-4"></div>
     <div class="text-center mt-4"><button data-more class="btn btn-secondary hidden">Load more</button></div>`;
   wireDateFields(root);
   $("[name=sort]", root).value = F.sort;
+  const filters = $("[data-filters]", root);
+  const showCount = () => {
+    const n = activeFilters();
+    $("[data-filter-count]", root).innerHTML = n ? ` <span class="rounded-full bg-accent text-on-accent text-[10px] font-semibold px-1.5">${n}</span>` : "";
+  };
+  if (activeFilters()) filters.classList.remove("hidden");
+  showCount();
+  $("[data-toggle-filters]", root).addEventListener("click", () => filters.classList.toggle("hidden"));
 
   const list = $("[data-list]", root);
   const more = $("[data-more]", root);
   let items = [];
   const PAGE = 100;
 
+  function renderList() {
+    if (!items.length) {
+      list.innerHTML = `<div class="card p-8 text-center text-sm text-slate-400">
+        ${F.q || activeFilters() ? "Nothing matches." : "No expenses yet. Tap + to add your first one."}</div>`;
+      return;
+    }
+    if (!F.sort.startsWith("date")) {
+      list.innerHTML = `<div class="card divide-y divide-slate-100 overflow-hidden">${items.map((e) => expenseRow(e)).join("")}</div>`;
+      return;
+    }
+    // Newest/oldest first: one group per day, with the day's total.
+    const groups = [];
+    for (const e of items) {
+      if (groups.at(-1)?.date !== e.date) groups.push({ date: e.date, items: [] });
+      groups.at(-1).items.push(e);
+    }
+    list.innerHTML = groups.map((g) => `
+      <section>
+        <div class="flex justify-between px-1 mb-1.5 text-xs font-medium text-slate-500">
+          <span>${friendlyDate(g.date)}</span>
+          <span class="tabular">${fmtMoney(g.items.reduce((a, e) => a + e.amount_cents, 0))}</span>
+        </div>
+        <div class="card divide-y divide-slate-100 overflow-hidden">${g.items.map((e) => expenseRow(e, { showDate: false })).join("")}</div>
+      </section>`).join("");
+  }
+
   async function load(append = false) {
     const [sort, order] = F.sort.split(":");
     const qs = new URLSearchParams({ sort, order, limit: PAGE, offset: append ? items.length : 0 });
-    for (const k of ["q", "category_id", "date_from", "date_to"]) if (F[k]) qs.set(k, F[k]);
+    for (const k of FILTER_KEYS) if (F[k]) qs.set(k, F[k]);
     const data = await api(`/api/expenses?${qs}`);
     items = append ? items.concat(data.items) : data.items;
-    $("[data-summary]", root).textContent =
-      `${data.count} transaction${data.count === 1 ? "" : "s"} · ${fmtMoney(data.total_cents)}`;
-    list.innerHTML = items.length
-      ? items.map(expenseRow).join("")
-      : `<p class="p-6 text-sm text-slate-400 text-center">No transactions match.</p>`;
+    $("[data-summary]", root).textContent = data.count
+      ? `${plural(data.count, "expense", "expenses")} · ${fmtMoney(data.total_cents)}` : "";
+    renderList();
     more.classList.toggle("hidden", items.length >= data.count);
+    showCount();
   }
   wireExpenseRows(list, { find: (fn) => items.find(fn) }, () => load());
 
@@ -549,7 +636,7 @@ async function viewTransactions(root, params) {
     });
   }
   $("[data-clear]", root).addEventListener("click", () => {
-    Object.assign(F, { q: "", category_id: "", date_from: "", date_to: "" });
+    Object.assign(F, { q: "", category_id: "", date_from: "", date_to: "", sort: "date:desc" });
     if (location.hash.includes("?")) location.hash = "#/transactions";
     else render();
   });
@@ -561,55 +648,66 @@ async function viewTransactions(root, params) {
    Settings
    ------------------------------------------------------------------------ */
 
-async function viewSettings(root) {
-  root.innerHTML = `
-    <h1 class="text-xl font-semibold mb-4">Settings</h1>
-    <div class="space-y-6">
-      <section data-this-phone class="hidden"></section>
-      <section data-budgets></section>
-      <section data-gmail-settings></section>
-      <section data-phone-settings></section>
-      <section class="card p-5">
-        <div class="flex items-baseline justify-between mb-1">
-          <h2 class="font-semibold">Categories</h2>
-          <span class="text-xs text-slate-400">Changes save automatically</span>
-        </div>
-        <p class="text-sm text-slate-500 mb-4">Rename, recolor, reorder (the order is used in the add form), or delete.</p>
-        <div data-cats class="divide-y divide-slate-100"></div>
-        <form data-add-cat class="flex flex-wrap items-center gap-2 mt-4 pt-4 border-t border-slate-100">
-          <input type="color" name="color" value="#64748b" class="h-9 w-10 rounded border border-slate-300 cursor-pointer">
-          <input name="name" class="input flex-1 min-w-[10rem]" placeholder="New category name" maxlength="40">
-          <button class="btn btn-primary">Add</button>
-        </form>
-      </section>
-      <section class="card p-5">
-        <h2 class="font-semibold mb-1">Learned merchants</h2>
-        <p class="text-sm text-slate-500 mb-4">Every time you confirm or correct a category, the app remembers it here. These always win over built-in rules and AI.</p>
-        <input data-rule-q class="input mb-3" placeholder="Filter merchants…">
-        <div data-rules class="divide-y divide-slate-100 max-h-[28rem] overflow-y-auto"></div>
-      </section>
-      <section data-data></section>
-      <section class="card p-5">
-        <h2 class="font-semibold mb-3">Integrations</h2>
-        <div data-status class="text-sm text-slate-600 space-y-2"></div>
-      </section>
-    </div>`;
+const settingsHooks = {};   // lets one section refresh another
 
-  const status = await api("/api/status");
-  const dot = (on) => `<span class="inline-block w-2 h-2 rounded-full mr-2 ${on ? "bg-emerald-500" : "bg-slate-300"}"></span>`;
-  $("[data-status]", root).innerHTML = `
-    <p>${dot(status.ai_enabled)}AI categorization: <b>${status.ai_enabled ? "on" : "off"}</b>
-      <span class="text-slate-400">${status.ai_enabled ? "(unknown merchants are sent to Claude)" : "(set ANTHROPIC_API_KEY)"}</span></p>
-    <p>${dot(status.quickadd_enabled)}Quick-add API for iPhone Shortcuts: <b>${status.quickadd_enabled ? "on" : "off"}</b>
-      <span class="text-slate-400">${status.quickadd_enabled ? "" : "(set QUICKADD_TOKEN)"}</span></p>
-    <p>${dot(status.lan_enabled)}Reachable from your phone on Wi-Fi: <b>${status.lan_enabled ? "yes" : "no"}</b>
-      <span class="text-slate-400">${status.lan_enabled ? "" : "(see Phone access)"}</span></p>
-    <p class="text-xs text-slate-400 pt-1">Settings go in a <code class="bg-slate-100 rounded px-1">.env</code> file in
-      <code class="bg-slate-100 rounded px-1 break-all">${esc(status.data_dir.replace(/^\/Users\/[^/]+/, "~"))}</code>.
-      Quit and reopen Budget after changing it. See the README for details.</p>`;
+const THEME_ORDER = ["auto", "light", "dark", "sand", "ocean", "lavender"];
+const themeLabel = (name) => name === "auto" ? "Automatic" : Theme.THEMES[name].label;
+
+function themeSwatch(name) {
+  const card = (t) => `<span class="flex-1 h-full p-1.5" style="background:#${t.neutral[0]}">
+      <span class="block h-full rounded-md p-1.5" style="background:#${t.surface}">
+        <span class="block h-1.5 w-8 rounded-full mb-1" style="background:#${t.neutral[3]}"></span>
+        <span class="block h-1.5 w-5 rounded-full" style="background:#${t.accent}"></span>
+      </span></span>`;
+  const preview = name === "auto"
+    ? card(Theme.THEMES.light) + card(Theme.THEMES.dark)
+    : card(Theme.THEMES[name]);
+  const on = Theme.choice === name;
+  return `<button type="button" data-theme-pick="${name}" aria-pressed="${on}"
+      class="text-left rounded-xl border-2 p-1 transition ${on ? "border-accent" : "border-transparent hover:border-slate-200"}">
+    <span class="flex h-16 rounded-lg overflow-hidden border border-slate-200">${preview}</span>
+    <span class="block text-sm text-center mt-1.5 ${on ? "font-medium text-slate-900" : "text-slate-600"}">${themeLabel(name)}</span>
+  </button>`;
+}
+
+async function settingsAppearance(el) {
+  const draw = () => {
+    el.innerHTML = `
+      <p class="text-sm text-slate-500 mb-3">Pick the colours you like. Automatic follows your Mac or iPhone's light and dark mode.</p>
+      <div class="grid grid-cols-3 sm:grid-cols-6 gap-2">${THEME_ORDER.map(themeSwatch).join("")}</div>`;
+  };
+  el.addEventListener("click", async (e) => {
+    const b = e.target.closest("[data-theme-pick]");
+    if (!b) return;
+    Theme.set(b.dataset.themePick);
+    draw();
+    settingsHooks.refreshSummaries?.();
+    try { await api("/api/preferences", { method: "PUT", body: { theme: Theme.choice } }); }
+    catch (err) { toast(err.message, "error"); }
+  });
+  draw();
+}
+
+async function settingsCategories(el) {
+  el.innerHTML = `
+    <p class="text-sm text-slate-500 mb-3">Rename, recolour or reorder your categories. Changes save by themselves.</p>
+    <div data-cats class="divide-y divide-slate-100"></div>
+    <form data-add-cat class="flex flex-wrap items-center gap-2 mt-3 pt-3 border-t border-slate-100">
+      <input type="color" name="color" value="#64748b" class="h-9 w-10 rounded border border-slate-300 cursor-pointer bg-surface">
+      <input name="name" class="input flex-1 min-w-[10rem]" placeholder="New category" maxlength="40">
+      <button class="btn btn-primary">Add</button>
+    </form>
+    <details class="mt-5">
+      <summary class="cursor-pointer list-none text-sm text-slate-500 hover:text-slate-900 inline-flex items-center gap-1">
+        <span data-chevron class="transition-transform inline-block">›</span> Learned merchants
+      </summary>
+      <p class="text-sm text-slate-500 my-3">When you pick or correct a category, Budget remembers it for that merchant. These always win.</p>
+      <input data-rule-q class="input mb-3" placeholder="Filter merchants…">
+      <div data-rules class="divide-y divide-slate-100 max-h-[28rem] overflow-y-auto"></div>
+    </details>`;
 
   // --- categories ---------------------------------------------------------
-  const catsEl = $("[data-cats]", root);
+  const catsEl = $("[data-cats]", el);
   function renderCats() {
     catsEl.innerHTML = state.categories.map((c, i) => `
       <div data-cat-row="${c.id}" class="py-2.5">
@@ -639,13 +737,14 @@ async function viewSettings(root) {
   async function refreshCats() {
     await loadCategories();
     renderCats();
+    settingsHooks.refreshSummaries?.();
   }
   async function patchCat(id, body) {
     try {
       await api(`/api/categories/${id}`, { method: "PATCH", body });
       toast("Saved");
       await refreshCats();
-      renderBudgets?.();
+      settingsHooks.renderBudgets?.();
     } catch (e) {
       toast(e.message, "error");
       await refreshCats();
@@ -688,11 +787,11 @@ async function viewSettings(root) {
         toast("Category deleted");
         await refreshCats();
         loadRules();
-        renderBudgets?.();
+        settingsHooks.renderBudgets?.();
       } catch (err) { toast(err.message, "error"); }
     }
   });
-  $("[data-add-cat]", root).addEventListener("submit", async (e) => {
+  $("[data-add-cat]", el).addEventListener("submit", async (e) => {
     e.preventDefault();
     const form = e.target;
     const name = form.name.value.trim();
@@ -702,16 +801,16 @@ async function viewSettings(root) {
       form.name.value = "";
       toast(`Added ${name}`);
       await refreshCats();
-      renderBudgets?.();
+      settingsHooks.renderBudgets?.();
     } catch (err) { toast(err.message, "error"); }
   });
   renderCats();
 
   // --- learned merchants ------------------------------------------------
-  const rulesEl = $("[data-rules]", root);
+  const rulesEl = $("[data-rules]", el);
   let rules = [];
   function renderRules() {
-    const q = $("[data-rule-q]", root).value.trim().toLowerCase();
+    const q = $("[data-rule-q]", el).value.trim().toLowerCase();
     const shown = rules.filter((r) => !q || r.merchant_norm.includes(q) || r.category_name.toLowerCase().includes(q));
     rulesEl.innerHTML = shown.length ? shown.map((r) => `
       <div data-rule="${esc(r.merchant_norm)}" class="flex items-center gap-2 py-2">
@@ -726,7 +825,7 @@ async function viewSettings(root) {
     rules = await api("/api/rules");
     renderRules();
   }
-  $("[data-rule-q]", root).addEventListener("input", renderRules);
+  $("[data-rule-q]", el).addEventListener("input", renderRules);
   rulesEl.addEventListener("change", async (e) => {
     const row = e.target.closest("[data-rule]");
     if (!row || !e.target.matches("[data-rule-cat]")) return;
@@ -743,17 +842,88 @@ async function viewSettings(root) {
   });
   await loadRules();
 
-  // Filled in by later phases.
-  var renderBudgets = await settingsBudgets($("[data-budgets]", root));
-  if (state.local) {
-    await settingsGmail($("[data-gmail-settings]", root));
-    await settingsPhone($("[data-phone-settings]", root));
-  } else {
-    const me = $("[data-this-phone]", root);
-    me.classList.remove("hidden");
-    settingsThisPhone(me);
+}
+
+async function settingsAbout(el) {
+  const status = await api("/api/status");
+  const dot = (on) => `<span class="inline-block w-2 h-2 rounded-full mr-2 ${on ? "bg-emerald-500" : "bg-slate-300"}"></span>`;
+  el.innerHTML = `
+    <div class="text-sm text-slate-600 space-y-2">
+      <p>${dot(status.ai_enabled)}AI category suggestions: <b>${status.ai_enabled ? "on" : "off"}</b>
+        <span class="text-slate-400">${status.ai_enabled ? "(only merchant names are sent to Claude)" : "(set ANTHROPIC_API_KEY)"}</span></p>
+      <p>${dot(status.quickadd_enabled)}Quick-add for iPhone Shortcuts: <b>${status.quickadd_enabled ? "on" : "off"}</b>
+        <span class="text-slate-400">${status.quickadd_enabled ? "" : "(set QUICKADD_TOKEN)"}</span></p>
+      <p class="text-xs text-slate-400 pt-1">These go in a <code class="bg-slate-100 rounded px-1">.env</code> file in
+        <code class="bg-slate-100 rounded px-1 break-all">${esc(status.data_dir.replace(/^\/Users\/[^/]+/, "~"))}</code>.
+        Quit and reopen Budget after changing it. The README explains each one.</p>
+    </div>`;
+}
+
+async function viewSettings(root, params) {
+  const local = state.local;
+  settingsHooks.renderBudgets = null;
+  const sections = [
+    { id: "appearance", title: "Appearance", init: settingsAppearance },
+    { id: "budget", title: "Budget", init: async (el) => { settingsHooks.renderBudgets = await settingsBudgets(el); } },
+    { id: "categories", title: "Categories", init: settingsCategories },
+    local && { id: "gmail", title: "Apple Pay via Gmail", init: settingsGmail },
+    local && { id: "phone", title: "Use on your phone", init: settingsPhone },
+    !local && { id: "device", title: "This device", init: settingsThisPhone },
+    { id: "data", title: "Your data", init: settingsData },
+    { id: "about", title: "About", init: settingsAbout },
+  ].filter(Boolean);
+
+  root.innerHTML = `
+    <div class="max-w-2xl mx-auto">
+      <h1 class="text-xl font-semibold text-slate-900 mb-4">Settings</h1>
+      <div class="card divide-y divide-slate-100 overflow-hidden">
+        ${sections.map((sec) => `
+          <details data-section="${sec.id}">
+            <summary class="flex items-center gap-3 px-5 py-4 cursor-pointer list-none hover:bg-slate-50">
+              <span class="flex-1 min-w-0">
+                <span class="block font-medium text-slate-900">${sec.title}</span>
+                <span data-summary class="block text-sm text-slate-500 truncate"></span>
+              </span>
+              <span data-chevron class="inline-block text-slate-400 text-xl leading-none transition-transform">›</span>
+            </summary>
+            <div data-body class="px-5 pb-5 pt-1"></div>
+          </details>`).join("")}
+      </div>
+    </div>`;
+
+  for (const sec of sections) {
+    const details = $(`[data-section="${sec.id}"]`, root);
+    details.addEventListener("toggle", async () => {
+      if (!details.open || details.dataset.ready) return;
+      details.dataset.ready = "1";
+      try { await sec.init($("[data-body]", details)); }
+      catch (err) { $("[data-body]", details).innerHTML = `<p class="text-sm text-red-600">${esc(err.message)}</p>`; }
+    });
   }
-  await settingsData($("[data-data]", root));
+
+  const summary = (id, text) => { const el = $(`[data-section="${id}"] [data-summary]`, root); if (el) el.textContent = text; };
+  settingsHooks.refreshSummaries = async () => {
+    summary("appearance", themeLabel(Theme.choice));
+    summary("categories", plural(state.categories.length, "category", "categories"));
+    summary("data", "Back up, export or import");
+    summary("device", "Signed in over Wi-Fi");
+    summary("about", "Optional extras");
+    const [limits, gmail, phone] = await Promise.all([
+      api("/api/budgets").catch(() => []),
+      local ? api("/api/email/settings").catch(() => null) : null,
+      local ? api("/api/phone").catch(() => null) : null,
+    ]);
+    const overall = (p) => limits.find((l) => l.category_id == null && l.period === p);
+    const parts = [overall("month") && `${fmtMoneyShort(overall("month").limit_cents)} a month`,
+                   overall("week") && `${fmtMoneyShort(overall("week").limit_cents)} a week`].filter(Boolean);
+    summary("budget", parts.length ? parts.join(" · ") : "No budget set yet");
+    if (gmail) summary("gmail", gmail.enabled && gmail.address ? `On · ${gmail.address}` : "Off");
+    if (phone) summary("phone", phone.running ? "On" : "Off");
+  };
+  await settingsHooks.refreshSummaries();
+
+  const open = params?.get("open");
+  if (open) $(`[data-section="${open}"]`, root)?.setAttribute("open", "");
 }
 
 /* ===========================================================================
@@ -767,36 +937,7 @@ const LEVELS = {
   red: { color: "#d03b3b", label: "Over limit", icon: "▲" },
 };
 
-function levelBadge(level) {
-  const l = LEVELS[level];
-  if (!l) return "";
-  return `<span class="inline-flex items-center gap-1 text-[11px] font-medium text-slate-600">
-    <span class="inline-flex w-3.5 h-3.5 rounded-full items-center justify-center text-[9px] text-white" style="background:${l.color}">${l.icon}</span>${l.label}</span>`;
-}
-
-function progressBar(s, { thick = false } = {}) {
-  if (s.limit_cents == null) return "";
-  const pct = s.limit_cents > 0 ? Math.max(0, Math.min(100, (s.spent_cents / s.limit_cents) * 100)) : (s.spent_cents > 0 ? 100 : 0);
-  const pctLabel = s.pct == null ? "" : `${Math.round(s.pct)}%`;
-  return `<div class="flex items-center gap-2">
-    <div class="flex-1 ${thick ? "h-3" : "h-2"} rounded-full bg-slate-100 overflow-hidden" role="progressbar"
-         aria-valuenow="${Math.round(s.pct ?? 0)}" aria-valuemin="0" aria-valuemax="100">
-      <div class="h-full rounded-full transition-all" style="width:${pct}%;background:${LEVELS[s.level]?.color || "#94a3b8"}"></div>
-    </div>
-    <span class="text-xs text-slate-500 tabular w-10 text-right">${pctLabel}</span>
-  </div>`;
-}
-
-function leftLine(s, periodWord, isCurrent) {
-  if (s.limit_cents == null) return "";
-  if (s.left_cents < 0) return `<b class="text-slate-900">${fmtMoney(-s.left_cents)}</b> over the limit`;
-  const perDay = isCurrent && s.per_day_cents != null
-    ? ` · <b class="text-slate-900">${fmtMoney(s.per_day_cents)}</b> per day` : "";
-  return `<b class="text-slate-900">${fmtMoney(s.left_cents)}</b> left ${periodWord}${perDay}`;
-}
-
 async function settingsBudgets(el) {
-  el.className = "card p-5";
   let limits = {};
   async function load() {
     limits = {};
@@ -824,20 +965,22 @@ async function settingsBudgets(el) {
     </div>`;
   }
   function render() {
+    const anyCategoryLimit = Object.keys(limits).some((k) => !k.startsWith("all:"));
     el.innerHTML = `
-      <div class="flex items-baseline justify-between mb-1">
-        <h2 class="font-semibold">Budgets &amp; limits</h2>
-        <span class="text-xs text-slate-400">Saves as soon as you leave a box</span>
-      </div>
-      <p class="text-sm text-slate-500 mb-3">Leave a box empty for no limit.</p>
+      <p class="text-sm text-slate-500 mb-3">How much you want to spend. Leave a box empty for no limit. Changes save by themselves.</p>
       <div class="grid grid-cols-[1fr_6.5rem_6.5rem] sm:grid-cols-[1fr_9rem_9rem] gap-2 text-xs font-medium text-slate-500 pb-1 border-b border-slate-100">
         <span></span><span class="text-right pr-2">Weekly</span><span class="text-right pr-2">Monthly</span>
       </div>
-      ${row("all", "Overall", null, true)}
-      <div class="divide-y divide-slate-50">
-        ${state.categories.map((c) => row(c.id, c.name, c.color, false)).join("")}
-      </div>
-      <p data-sums class="text-xs text-slate-500 mt-3 space-x-2">${sumLine("week")} ${sumLine("month")}</p>`;
+      ${row("all", "Everything", null, true)}
+      <details ${anyCategoryLimit ? "open" : ""} class="mt-2">
+        <summary class="cursor-pointer list-none text-sm text-slate-500 hover:text-slate-900 inline-flex items-center gap-1 py-1">
+          <span data-chevron class="transition-transform inline-block">›</span> Limits per category <span class="text-slate-400">(optional)</span>
+        </summary>
+        <div class="divide-y divide-slate-100">
+          ${state.categories.map((c) => row(c.id, c.name, c.color, false)).join("")}
+        </div>
+        <p data-sums class="text-xs text-slate-500 mt-3 space-x-2">${sumLine("week")} ${sumLine("month")}</p>
+      </details>`;
   }
   el.addEventListener("change", async (e) => {
     const input = e.target.closest("[data-limit]");
@@ -854,6 +997,7 @@ async function settingsBudgets(el) {
       input.value = value(input.dataset.limit);
       $("[data-sums]", el).innerHTML = `${sumLine("week")} ${sumLine("month")}`;
       toast(amount == null ? "Limit removed" : "Limit saved");
+      settingsHooks.refreshSummaries?.();
     } catch (err) { toast(err.message, "error"); }
   });
   el.addEventListener("keydown", (e) => { if (e.key === "Enter" && e.target.matches("[data-limit]")) e.target.blur(); });
@@ -866,20 +1010,20 @@ async function settingsBudgets(el) {
    Dashboard
    ======================================================================== */
 
-const CHART_INK = { text: "#64748b", grid: "#eef0f3", series: "#2a78d6", seriesSoft: "#9ec5f4", reference: "#334155" };
+/** Chart colours from the current theme. */
+const chartInk = () => ({
+  text: Theme.color("slate-500"), grid: Theme.color("slate-200", 0.6), surface: Theme.color("surface"),
+  series: Theme.color("accent"), seriesSoft: Theme.color("accent", 0.35), reference: Theme.color("slate-700"),
+});
 const monthName = new Intl.DateTimeFormat("en-GB", { month: "long", year: "numeric" });
+const monthOnly = new Intl.DateTimeFormat("en-GB", { month: "long" });
 const monthShort = new Intl.DateTimeFormat("en-GB", { month: "short" });
-const weekdayShort = new Intl.DateTimeFormat("en-GB", { weekday: "short" });
 const dateObj = (iso) => { const [y, m, d] = iso.split("-").map(Number); return new Date(y, m - 1, d); };
 
-function periodLabel(d) {
-  if (d.period === "month") return monthName.format(dateObj(d.start));
-  return `${fmtDate(d.start).slice(0, 5)} – ${fmtDate(d.end)}`;
-}
-
 function makeChart(canvas, config) {
+  const ink = chartInk();
   Chart.defaults.font.family = "ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif";
-  Chart.defaults.color = CHART_INK.text;
+  Chart.defaults.color = ink.text;
   const chart = new Chart(canvas, config);
   state.charts.push(chart);
   return chart;
@@ -889,240 +1033,221 @@ const moneyTooltip = (ctx) => ` ${ctx.dataset.label ? ctx.dataset.label + ": " :
 // Axis ticks in whole euros; fractional ticks are left unlabelled.
 const axisMoney = (v) => (Number.isInteger(v / 100) ? `${v / 100} €` : "");
 
-function glanceCard(title, s, d) {
-  const word = d.period === "week" ? "this week" : "this month";
-  return `<a href="#/transactions?date_from=${d.start}&date_to=${d.end}" class="card p-5 block hover:border-slate-300 transition">
-    <div class="flex items-baseline justify-between">
-      <h2 class="text-sm font-medium text-slate-500">${title}</h2>
-      <span class="text-xs text-slate-400 tabular">${d.days_left} day${d.days_left === 1 ? "" : "s"} left</span>
-    </div>
-    <div class="mt-2 flex items-baseline gap-2 flex-wrap">
-      <span class="text-3xl font-semibold tabular text-slate-900">${fmtMoney(s.spent_cents)}</span>
-      ${s.limit_cents != null ? `<span class="text-sm text-slate-400 tabular">of ${fmtMoney(s.limit_cents)}</span>` : ""}
-    </div>
-    ${s.limit_cents != null ? `
-      <div class="mt-3">${progressBar(s, { thick: true })}</div>
-      <div class="mt-2 flex items-center justify-between gap-2 flex-wrap text-sm text-slate-600">
-        <span>${leftLine(s, word, true)}</span>${levelBadge(s.level)}
-      </div>`
-      : `<p class="mt-3 text-sm text-slate-400">No ${d.period}ly limit. <span class="underline" data-goto-settings>Set one in Settings</span></p>`}
-  </a>`;
+/** One plain sentence on how spending compares with an even pace through the period. */
+function paceLine(s, d) {
+  if (s.limit_cents == null || !d.is_current || s.limit_cents <= 0) return "";
+  const elapsed = d.days_total - d.days_left + 1;
+  const expected = Math.round(s.limit_cents * elapsed / d.days_total);
+  const diff = expected - s.spent_cents;
+  if (Math.abs(diff) < s.limit_cents * 0.03) return "right on plan so far";
+  return diff > 0 ? `${fmtMoney(diff)} less than planned so far` : `${fmtMoney(-diff)} more than planned so far`;
 }
 
+function bar(pct, color, { thick = false } = {}) {
+  return `<div class="${thick ? "h-2.5" : "h-1.5"} rounded-full bg-slate-100 overflow-hidden">
+    <div class="h-full rounded-full transition-all" style="width:${Math.max(0, Math.min(100, pct))}%;background:${color}"></div></div>`;
+}
+const limitPct = (s) => s.limit_cents > 0 ? (s.spent_cents / s.limit_cents) * 100 : (s.spent_cents > 0 ? 100 : 0);
+
+/** The big "€ left this month" card, with this week as one line underneath. */
+function heroCard(month, week) {
+  const m = month.overall, w = week.overall;
+  const name = monthOnly.format(dateObj(month.start));
+  const dayWord = plural(month.days_left, "day", "days");
+  let top;
+  if (m.limit_cents == null) {
+    top = `
+      <p class="text-sm text-slate-500">Spent in ${name}</p>
+      <p class="text-4xl sm:text-5xl font-semibold tabular text-slate-900 mt-1">${fmtMoney(m.spent_cents)}</p>
+      <a href="#/settings?open=budget" class="btn btn-secondary mt-4">Set a monthly budget</a>`;
+  } else {
+    const over = m.left_cents < 0;
+    const pace = paceLine(m, month);
+    top = `
+      <div class="flex items-baseline justify-between gap-2">
+        <p class="text-sm text-slate-500">${over ? `Over budget in ${name}` : `Left to spend in ${name}`}</p>
+        <p class="text-xs text-slate-400">${dayWord} to go</p>
+      </div>
+      <p class="text-4xl sm:text-5xl font-semibold tabular mt-1 ${over ? "text-red-600" : "text-slate-900"}">${fmtMoney(Math.abs(m.left_cents))}</p>
+      <div class="mt-4">${bar(limitPct(m), LEVELS[m.level].color, { thick: true })}</div>
+      <div class="mt-2 flex flex-wrap justify-between gap-x-4 gap-y-1 text-sm text-slate-500">
+        <span>${fmtMoney(m.spent_cents)} of ${fmtMoneyShort(m.limit_cents)}</span>
+        <span>${over ? "" : `About <b class="text-slate-900 tabular">${fmtMoney(m.per_day_cents)}</b> a day`}${pace && !over ? ` · ${pace}` : ""}</span>
+      </div>`;
+  }
+  const weekLine = w.limit_cents == null
+    ? `<span>This week</span><span class="tabular text-slate-700">${fmtMoney(w.spent_cents)} spent</span>`
+    : `<span>This week</span>
+       <span class="flex-1 max-w-[10rem] mx-3">${bar(limitPct(w), LEVELS[w.level].color)}</span>
+       <span class="tabular text-slate-700">${w.left_cents < 0 ? `${fmtMoney(-w.left_cents)} over` : `${fmtMoney(w.left_cents)} left`}</span>`;
+  return `<section class="card p-5 sm:p-6">
+    ${top}
+    <a href="#/transactions?date_from=${week.start}&date_to=${week.end}" class="mt-5 pt-4 border-t border-slate-100 flex items-center justify-between text-sm text-slate-500 hover:text-slate-900">${weekLine}</a>
+  </section>`;
+}
+
+/** Categories as simple bars: against their limit when they have one. */
+function whereItWent(d, txLink) {
+  const cats = d.categories.filter((c) => c.spent_cents > 0).sort((a, b) => b.spent_cents - a.spent_cents);
+  if (!cats.length) return `<p class="text-sm text-slate-400 py-8 text-center">Nothing spent in ${monthOnly.format(dateObj(d.start))}${d.is_current ? " yet" : ""}.</p>`;
+  const top = cats[0].spent_cents;
+  const SHOW = 6;
+  const row = (c, i) => `
+    <li ${i >= SHOW ? "data-extra hidden" : ""}>
+      <a href="${txLink(`&category_id=${c.category_id ?? "none"}`)}" class="block rounded-lg -mx-2 px-2 py-2 hover:bg-slate-50">
+        <div class="flex items-center gap-2 text-sm mb-1.5">
+          <span class="w-2.5 h-2.5 rounded-full shrink-0" style="background:${esc(c.color)}"></span>
+          <span class="flex-1 truncate text-slate-700">${esc(c.name)}</span>
+          <span class="tabular font-medium text-slate-900">${fmtMoney(c.spent_cents)}</span>
+          ${c.limit_cents != null ? `<span class="tabular text-xs text-slate-400 w-16 text-right">of ${fmtMoneyShort(c.limit_cents)}</span>` : ""}
+        </div>
+        ${c.limit_cents != null ? bar(limitPct(c), LEVELS[c.level].color) : bar((c.spent_cents / top) * 100, esc(c.color))}
+      </a>
+    </li>`;
+  return `<ul>${cats.map(row).join("")}</ul>
+    ${cats.length > SHOW ? `<button data-show-extra class="link mt-2">Show ${cats.length - SHOW} more</button>` : ""}`;
+}
+
+let trendsOpen = false;   // remembered while the app is open
+
 async function viewDashboard(root, params) {
-  const period = params.get("period") === "week" ? "week" : "month";
   const date = params.get("date") || "";
-  const [glance, d] = await Promise.all([
+  const [glance, d, recent, emailStatus] = await Promise.all([
     api("/api/budgets/status"),
-    api(`/api/dashboard?period=${period}${date ? `&date=${date}` : ""}`),
+    api(`/api/dashboard?period=month${date ? `&date=${date}` : ""}`),
+    api("/api/expenses?limit=5&sort=date&order=desc"),
+    api("/api/email/status").catch(() => ({ review_count: 0 })),
   ]);
-  const go = (p, dt) => `#/dashboard?period=${p}${dt ? `&date=${dt}` : ""}`;
-  const periodWord = period === "week" ? "week" : "month";
-  const total = d.overall.spent_cents;
-  const change = d.prev_total_cents ? Math.round(((total - d.prev_total_cents) / Math.abs(d.prev_total_cents)) * 100) : null;
-  const withLimit = d.categories.filter((c) => c.limit_cents != null);
-  const spentCats = d.categories.filter((c) => c.spent_cents > 0).sort((a, b) => b.spent_cents - a.spent_cents);
-  const positiveTotal = spentCats.reduce((a, c) => a + c.spent_cents, 0);
+  const go = (dt) => `#/home${dt ? `?date=${dt}` : ""}`;
   const txLink = (extra = "") => `#/transactions?date_from=${d.start}&date_to=${d.end}${extra}`;
 
-  const emailStatus = await api("/api/email/status").catch(() => ({ review_count: 0 }));
+  if (!recent.count && !d.overall.spent_cents) {
+    root.innerHTML = `
+      <section class="card p-8 text-center max-w-lg mx-auto mt-6">
+        <span class="inline-flex w-12 h-12 rounded-2xl bg-accent text-on-accent items-center justify-center text-2xl mb-4">€</span>
+        <h1 class="text-xl font-semibold text-slate-900">Welcome to Budget</h1>
+        <p class="text-sm text-slate-500 mt-2 mb-6">Add what you spend and see at a glance how much is left this month.</p>
+        <div class="flex flex-col sm:flex-row gap-2 justify-center">
+          <a href="#/add" class="btn btn-primary">Add your first expense</a>
+          <a href="#/settings?open=budget" class="btn btn-secondary">Set a monthly budget</a>
+        </div>
+        <a href="#/import" class="link inline-block mt-4">or import a bank statement</a>
+      </section>`;
+    return;
+  }
+
   root.innerHTML = `
     ${emailStatus.review_count ? `<a href="#/import" class="flex items-center gap-3 mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 hover:bg-amber-100">
-      <span class="inline-flex w-5 h-5 rounded-full bg-amber-500 text-white items-center justify-center text-xs font-bold">!</span>
-      <span class="flex-1">${plural(emailStatus.review_count, "transaction from your iPhone needs", "transactions from your iPhone need")} review</span>
+      <span class="flex-1">${plural(emailStatus.review_count, "payment from your iPhone needs", "payments from your iPhone need")} a quick check</span>
       <span class="font-medium">Review →</span></a>` : ""}
-    <div class="grid sm:grid-cols-2 gap-4">
-      ${glanceCard("This week", glance.week.overall, glance.week)}
-      ${glanceCard("This month", glance.month.overall, glance.month)}
-    </div>
 
-    <div class="flex flex-wrap items-center gap-3 mt-8 mb-4">
-      <div class="inline-flex rounded-lg bg-slate-200/70 p-0.5 text-sm">
-        ${["week", "month"].map((p) => `<a href="${go(p, date)}" class="px-3 py-1 rounded-md ${p === period ? "bg-white shadow-sm font-medium text-slate-900" : "text-slate-500 hover:text-slate-800"}">${p === "week" ? "Week" : "Month"}</a>`).join("")}
-      </div>
-      <div class="flex items-center gap-1">
-        <a href="${go(period, d.prev_date)}" class="btn btn-ghost !px-2" aria-label="Previous ${periodWord}">‹</a>
-        <span class="font-semibold text-slate-900 tabular min-w-[9rem] text-center">${periodLabel(d)}</span>
-        <a href="${go(period, d.next_date)}" class="btn btn-ghost !px-2" aria-label="Next ${periodWord}">›</a>
-      </div>
-      ${d.is_current ? "" : `<a href="${go(period, "")}" class="text-sm text-slate-500 hover:text-slate-900 underline">Back to now</a>`}
-      <span class="sm:ml-auto text-sm text-slate-500">
-        Spent <b class="text-slate-900 tabular">${fmtMoney(total)}</b>
-        ${change != null ? `· ${change >= 0 ? "+" : ""}${change}% vs previous ${periodWord}` : ""}
-      </span>
-    </div>
+    ${heroCard(glance.month, glance.week)}
 
-    <div class="grid lg:grid-cols-2 gap-4">
+    <div class="grid lg:grid-cols-2 gap-4 mt-4">
       <section class="card p-5">
-        <h3 class="font-semibold mb-4">By category</h3>
-        ${spentCats.length ? `
-          <div class="flex flex-col sm:flex-row items-center gap-6">
-            <div class="relative w-44 h-44 shrink-0">
-              <canvas data-donut aria-label="Spending by category"></canvas>
-              <div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                <span class="text-xs text-slate-400">Total</span>
-                <span class="font-semibold tabular text-slate-900">${fmtMoney(total)}</span>
-              </div>
-            </div>
-            <ul class="flex-1 w-full space-y-1.5 text-sm">
-              ${spentCats.map((c) => `<li>
-                <a href="${txLink(`&category_id=${c.category_id ?? "none"}`)}" class="flex items-center gap-2 rounded px-1 -mx-1 hover:bg-slate-50">
-                  <span class="w-2.5 h-2.5 rounded-sm shrink-0" style="background:${esc(c.color)}"></span>
-                  <span class="flex-1 truncate text-slate-700">${esc(c.name)}</span>
-                  <span class="text-slate-400 tabular text-xs">${Math.round((c.spent_cents / positiveTotal) * 100)}%</span>
-                  <span class="tabular font-medium text-slate-900 w-20 text-right">${fmtMoney(c.spent_cents)}</span>
-                </a></li>`).join("")}
-            </ul>
-          </div>` : `<p class="text-sm text-slate-400 py-10 text-center">No spending in this ${periodWord}.</p>`}
-      </section>
-
-      <section class="card p-5">
-        <div class="flex items-baseline justify-between mb-4">
-          <h3 class="font-semibold">Limits this ${periodWord}</h3>
-          <a href="#/settings" class="text-xs text-slate-500 hover:text-slate-900">Edit limits</a>
+        <div class="flex items-center justify-between mb-2">
+          <h2 class="font-semibold text-slate-900">Where it went</h2>
+          <div class="flex items-center text-sm text-slate-500">
+            <a href="${go(d.prev_date)}" class="px-2 py-0.5 rounded hover:bg-slate-100" aria-label="Previous month">‹</a>
+            <span class="tabular">${d.is_current ? monthOnly.format(dateObj(d.start)) : monthName.format(dateObj(d.start))}</span>
+            ${d.is_current ? `<span class="px-2 py-0.5 opacity-0">›</span>` : `<a href="${go(d.next_date)}" class="px-2 py-0.5 rounded hover:bg-slate-100" aria-label="Next month">›</a>`}
+          </div>
         </div>
-        ${d.overall.limit_cents != null ? `
-          <div class="mb-4 pb-4 border-b border-slate-100">
-            <div class="flex items-baseline justify-between text-sm mb-1.5">
-              <span class="font-medium text-slate-900">Overall</span>
-              <span class="tabular text-slate-500">${fmtMoney(d.overall.spent_cents)} / ${fmtMoney(d.overall.limit_cents)}</span>
-            </div>
-            ${progressBar(d.overall)}
-            <p class="text-xs text-slate-500 mt-1">${leftLine(d.overall, "", d.is_current)}</p>
-          </div>` : ""}
-        ${withLimit.length ? `<div class="space-y-4">${withLimit.map((c) => `
-          <div>
-            <div class="flex items-baseline justify-between text-sm mb-1.5 gap-2">
-              <span class="flex items-center gap-2 min-w-0 text-slate-700">
-                <span class="w-2.5 h-2.5 rounded-sm shrink-0" style="background:${esc(c.color)}"></span>
-                <span class="truncate">${esc(c.name)}</span></span>
-              <span class="tabular text-slate-500 shrink-0">${fmtMoney(c.spent_cents)} / ${fmtMoney(c.limit_cents)}</span>
-            </div>
-            ${progressBar(c)}
-            <p class="text-xs text-slate-500 mt-1">${leftLine(c, "", d.is_current)}</p>
-          </div>`).join("")}</div>`
-        : d.overall.limit_cents == null
-          ? `<p class="text-sm text-slate-400 py-6 text-center">No limits yet. <a href="#/settings" class="underline">Set weekly or monthly limits</a> to see progress here.</p>`
-          : `<p class="text-sm text-slate-400">No per-category limits for this ${periodWord}.</p>`}
+        ${!d.is_current ? `<p class="text-xs text-slate-500 mb-2">${fmtMoney(d.overall.spent_cents)} in total · <a href="${go("")}" class="underline">back to this month</a></p>` : ""}
+        ${whereItWent(d, txLink)}
       </section>
 
+      <section class="card overflow-hidden">
+        <div class="flex items-center justify-between px-5 pt-5 pb-2">
+          <h2 class="font-semibold text-slate-900">Recent</h2>
+          <a href="#/transactions" class="link">See all</a>
+        </div>
+        <div data-recent class="divide-y divide-slate-100">${recent.items.map((e) => expenseRow(e)).join("")}</div>
+      </section>
+    </div>
+
+    <div class="mt-6 text-center">
+      <button data-toggle-trends class="btn btn-ghost">${trendsOpen ? "Hide trends" : "Show trends"}</button>
+    </div>
+    <div data-trends class="${trendsOpen ? "" : "hidden"} grid lg:grid-cols-2 gap-4 mt-2">
+      <section class="card p-5">
+        <h3 class="font-semibold text-slate-900 mb-3">Month by month</h3>
+        <div class="h-52"><canvas data-trend aria-label="Spending per month"></canvas></div>
+      </section>
+      <section class="card p-5">
+        <h3 class="font-semibold text-slate-900 mb-3">Day by day in ${monthOnly.format(dateObj(d.start))}</h3>
+        <div class="h-52"><canvas data-daily aria-label="Spending per day"></canvas></div>
+      </section>
       <section class="card p-5 lg:col-span-2">
-        <div class="flex items-baseline justify-between mb-3 gap-2 flex-wrap">
-          <h3 class="font-semibold">Daily spending</h3>
-          <span data-daily-note class="text-xs text-slate-500"></span>
-        </div>
-        <div class="h-56"><canvas data-daily aria-label="Spending per day"></canvas></div>
-      </section>
-
-      <section class="card p-5">
-        <div class="flex items-baseline justify-between mb-3 gap-2 flex-wrap">
-          <h3 class="font-semibold">Month by month</h3>
-          ${d.monthly_limit_cents != null ? `<span class="text-xs text-slate-500 flex items-center gap-1.5"><span class="inline-block w-4 border-t-2 border-dashed" style="border-color:${CHART_INK.reference}"></span>Monthly limit</span>` : ""}
-        </div>
-        <div class="h-56"><canvas data-trend aria-label="Spending per month"></canvas></div>
-      </section>
-
-      <section class="card p-5">
-        <h3 class="font-semibold mb-3">Top merchants</h3>
-        ${d.top_merchants.length ? `<ol class="space-y-2.5">${d.top_merchants.map((m, i) => `
-          <li><a href="${txLink(`&q=${encodeURIComponent(m.merchant)}`)}" class="block rounded px-1 -mx-1 hover:bg-slate-50">
-            <div class="flex items-baseline gap-2 text-sm">
-              <span class="text-slate-400 tabular w-4">${i + 1}</span>
-              <span class="flex-1 truncate text-slate-800">${esc(m.merchant)}</span>
-              <span class="text-xs text-slate-400">${m.count}×</span>
-              <span class="tabular font-medium text-slate-900 w-20 text-right">${fmtMoney(m.cents)}</span>
-            </div>
-            <div class="ml-6 mt-1 h-1.5 rounded-full bg-slate-100 overflow-hidden">
-              <div class="h-full rounded-full" style="width:${Math.max(2, (m.cents / d.top_merchants[0].cents) * 100)}%;background:${esc(m.category_color || "#cbd5e1")}"></div>
-            </div></a></li>`).join("")}</ol>`
-        : `<p class="text-sm text-slate-400 py-6 text-center">Nothing yet.</p>`}
+        <h3 class="font-semibold text-slate-900 mb-3">Where you spend most</h3>
+        ${d.top_merchants.length ? `<ol class="grid sm:grid-cols-2 gap-x-8 gap-y-2">${d.top_merchants.map((m) => `
+          <li><a href="${txLink(`&q=${encodeURIComponent(m.merchant)}`)}" class="flex items-center gap-3 rounded-lg -mx-2 px-2 py-1.5 hover:bg-slate-50 text-sm">
+            ${categoryAvatar(m.category_name, m.category_color)}
+            <span class="flex-1 min-w-0"><span class="block truncate text-slate-800">${esc(m.merchant)}</span>
+              <span class="text-xs text-slate-400">${plural(m.count, "time", "times")}</span></span>
+            <span class="tabular font-medium text-slate-900">${fmtMoney(m.cents)}</span></a></li>`).join("")}</ol>`
+        : `<p class="text-sm text-slate-400 py-4 text-center">Nothing yet.</p>`}
       </section>
     </div>`;
 
-  $$("[data-goto-settings]", root).forEach((s) => s.addEventListener("click", (e) => { e.preventDefault(); location.hash = "#/settings"; }));
+  wireExpenseRows($("[data-recent]", root), { find: (fn) => recent.items.find(fn) }, render);
+  $("[data-show-extra]", root)?.addEventListener("click", (e) => {
+    $$("[data-extra]", root).forEach((li) => li.removeAttribute("hidden"));
+    e.target.remove();
+  });
 
-  // Donut: category colors follow the category, with a 2px surface gap between slices.
-  if (spentCats.length) {
-    makeChart($("[data-donut]", root), {
-      type: "doughnut",
+  let drawn = false;
+  function drawCharts() {
+    if (drawn) return;
+    drawn = true;
+    const ink = chartInk();
+    const axes = (suggestedMax) => ({
+      x: { grid: { display: false }, ticks: { autoSkip: true, maxRotation: 0 } },
+      y: { beginAtZero: true, suggestedMax, grid: { color: ink.grid }, border: { display: false }, ticks: { callback: axisMoney, maxTicksLimit: 4 } },
+    });
+    const selectedMonth = d.start.slice(0, 7);
+    makeChart($("[data-trend]", root), {
+      type: "bar",
       data: {
-        labels: spentCats.map((c) => c.name),
-        datasets: [{ data: spentCats.map((c) => c.spent_cents), backgroundColor: spentCats.map((c) => c.color),
-                     borderColor: "#ffffff", borderWidth: 2, hoverOffset: 4 }],
+        labels: d.trend.map((t) => monthShort.format(dateObj(t.month + "-01"))),
+        datasets: [{ label: "Spent", data: d.trend.map((t) => t.cents), borderRadius: 6, borderSkipped: "start", maxBarThickness: 26,
+          backgroundColor: d.trend.map((t) => t.month === selectedMonth ? ink.series : ink.seriesSoft) }],
       },
       options: {
-        cutout: "70%", maintainAspectRatio: false,
+        maintainAspectRatio: false,
         plugins: { legend: { display: false },
-          tooltip: { callbacks: { label: (ctx) => ` ${ctx.label}: ${fmtMoney(ctx.parsed)} (${Math.round(ctx.parsed / positiveTotal * 100)}%)` } } },
+          tooltip: { callbacks: { title: (items) => monthName.format(dateObj(d.trend[items[0].dataIndex].month + "-01")), label: moneyTooltip } } },
+        scales: axes(10000),
+        onClick: (_, els) => { if (els.length) location.hash = go(d.trend[els[0].index].month + "-01"); },
+      },
+    });
+    makeChart($("[data-daily]", root), {
+      type: "bar",
+      data: {
+        labels: d.daily.map((x) => String(Number(x.date.slice(8)))),
+        datasets: [{ label: "Spent", data: d.daily.map((x) => x.cents), borderRadius: 4, borderSkipped: "start", maxBarThickness: 18,
+          backgroundColor: d.daily.map((x) => x.date > d.today ? ink.seriesSoft : ink.series) }],
+      },
+      options: {
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false },
+          tooltip: { callbacks: { title: (items) => fmtDate(d.daily[items[0].dataIndex].date), label: moneyTooltip } } },
+        scales: axes(2000),
         onClick: (_, els) => {
           if (!els.length) return;
-          const c = spentCats[els[0].index];
-          location.hash = txLink(`&category_id=${c.category_id ?? "none"}`);
+          const day = d.daily[els[0].index].date;
+          location.hash = `#/transactions?date_from=${day}&date_to=${day}`;
         },
       },
     });
   }
-
-  // Daily bars, with the daily allowance as a reference line when there's an overall limit.
-  const allowance = d.overall.limit_cents != null ? Math.round(d.overall.limit_cents / d.days_total) : null;
-  if (allowance != null) $("[data-daily-note]", root).innerHTML =
-    `<span class="inline-flex items-center gap-1.5"><span class="inline-block w-4 border-t-2 border-dashed" style="border-color:${CHART_INK.reference}"></span>Even pace: ${fmtMoney(allowance)} / day</span>`;
-  const dailyLabels = d.daily.map((x) => period === "week"
-    ? `${weekdayShort.format(dateObj(x.date))} ${Number(x.date.slice(8))}` : String(Number(x.date.slice(8))));
-  makeChart($("[data-daily]", root), {
-    data: {
-      labels: dailyLabels,
-      datasets: [
-        { type: "bar", label: "Spent", data: d.daily.map((x) => x.cents),
-          backgroundColor: d.daily.map((x) => x.date === d.today ? CHART_INK.series : (x.date > d.today ? CHART_INK.seriesSoft : CHART_INK.series)),
-          borderRadius: 4, borderSkipped: "start", maxBarThickness: 28 },
-        ...(allowance != null ? [{ type: "line", label: "Even pace", data: d.daily.map(() => allowance),
-          borderColor: CHART_INK.reference, borderWidth: 2, borderDash: [5, 4], pointRadius: 0, pointHoverRadius: 0 }] : []),
-      ],
-    },
-    options: {
-      maintainAspectRatio: false, interaction: { mode: "index", intersect: false },
-      plugins: { legend: { display: false },
-        tooltip: { callbacks: { title: (items) => fmtDate(d.daily[items[0].dataIndex].date), label: moneyTooltip } } },
-      scales: {
-        x: { grid: { display: false }, ticks: { autoSkip: true, maxRotation: 0 } },
-        y: { beginAtZero: true, suggestedMax: 2000, grid: { color: CHART_INK.grid }, border: { display: false }, ticks: { callback: axisMoney, maxTicksLimit: 5 } },
-      },
-      onClick: (_, els) => {
-        if (!els.length) return;
-        const day = d.daily[els[0].index].date;
-        location.hash = `#/transactions?date_from=${day}&date_to=${day}`;
-      },
-    },
+  $("[data-toggle-trends]", root).addEventListener("click", (e) => {
+    trendsOpen = !trendsOpen;
+    $("[data-trends]", root).classList.toggle("hidden", !trendsOpen);
+    e.target.textContent = trendsOpen ? "Hide trends" : "Show trends";
+    if (trendsOpen) drawCharts();
   });
-
-  // Month-by-month: the selected month in full color, the rest softer.
-  const selectedMonth = d.start.slice(0, 7);
-  makeChart($("[data-trend]", root), {
-    data: {
-      labels: d.trend.map((t) => monthShort.format(dateObj(t.month + "-01"))),
-      datasets: [
-        { type: "bar", label: "Spent", data: d.trend.map((t) => t.cents),
-          backgroundColor: d.trend.map((t) => t.month === selectedMonth ? CHART_INK.series : CHART_INK.seriesSoft),
-          borderRadius: 4, borderSkipped: "start", maxBarThickness: 28 },
-        ...(d.monthly_limit_cents != null ? [{ type: "line", label: "Monthly limit", data: d.trend.map(() => d.monthly_limit_cents),
-          borderColor: CHART_INK.reference, borderWidth: 2, borderDash: [5, 4], pointRadius: 0, pointHoverRadius: 0 }] : []),
-      ],
-    },
-    options: {
-      maintainAspectRatio: false, interaction: { mode: "index", intersect: false },
-      plugins: { legend: { display: false },
-        tooltip: { callbacks: { title: (items) => monthName.format(dateObj(d.trend[items[0].dataIndex].month + "-01")), label: moneyTooltip } } },
-      scales: {
-        x: { grid: { display: false }, ticks: { maxRotation: 0, autoSkip: true } },
-        y: { beginAtZero: true, suggestedMax: 10000, grid: { color: CHART_INK.grid }, border: { display: false }, ticks: { callback: axisMoney, maxTicksLimit: 5 } },
-      },
-      onClick: (_, els) => {
-        if (!els.length) return;
-        location.hash = go("month", d.trend[els[0].index].month + "-01");
-      },
-    },
-  });
+  if (trendsOpen) drawCharts();
 }
 
 /* ===========================================================================
@@ -1132,8 +1257,9 @@ async function viewDashboard(root, params) {
 async function viewImport(root) {
   const S = { text: "", parsed: null, rows: [] };
   root.innerHTML = `
+    <a href="#/transactions" class="link inline-block mb-3">‹ Transactions</a>
     <section data-review class="hidden mb-8"></section>
-    <h1 class="text-xl font-semibold mb-1">Import a bank statement</h1>
+    <h1 class="text-xl font-semibold text-slate-900 mb-1">Import a bank statement</h1>
     <p class="text-sm text-slate-500 mb-5">Download a CSV from your bank, drop it here, check the preview, then import.</p>
     <label data-drop class="card p-8 flex flex-col items-center justify-center text-center border-2 border-dashed border-slate-300 cursor-pointer hover:border-slate-400 transition">
       <svg class="w-8 h-8 text-slate-400 mb-2" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path d="M12 16V4M7 9l5-5 5 5M4 20h16"/></svg>
@@ -1284,15 +1410,14 @@ async function viewImport(root) {
 }
 
 async function settingsData(el) {
-  el.className = "card p-5";
   el.innerHTML = `
-    <h2 class="font-semibold mb-1">Your data</h2>
-    <p class="text-sm text-slate-500 mb-4">Everything is stored on this computer in
+    <p class="text-sm text-slate-500 mb-4">Everything is stored on your Mac in
       <code data-db-path class="text-xs bg-slate-100 rounded px-1 break-all"></code>.
       Rebuilding or updating the app never touches it.</p>
     <div class="flex flex-wrap gap-2">
       <button data-backup class="btn btn-primary">Back up now</button>
       <a href="/api/export.csv" class="btn btn-secondary">Export all to CSV</a>
+      <a href="#/import" class="btn btn-secondary">Import a bank statement</a>
       <button data-show-folder class="btn btn-ghost hidden">Show in Finder</button>
     </div>
     <div data-backups class="mt-4 text-sm"></div>`;
@@ -1337,15 +1462,10 @@ function syncSummary(s, prefix = null) {
 }
 
 async function settingsGmail(el) {
-  el.className = "card p-5";
   let cfg = await api("/api/email/settings");
   el.innerHTML = `
-    <div class="flex items-baseline justify-between gap-2 flex-wrap mb-1">
-      <h2 class="font-semibold">Gmail import (Apple Pay emails)</h2>
-      <span class="text-xs text-slate-400">The password is stored in your Mac's Keychain</span>
-    </div>
-    <p class="text-sm text-slate-500 mb-4">Reads emails with the subject <b>BUDGET</b> that your iPhone Shortcut sends you, from one Gmail label.
-      Gmail is opened read-only: nothing is ever marked, moved or deleted.</p>
+    <p class="text-sm text-slate-500 mb-4">Adds your Apple Pay payments automatically from the emails your iPhone Shortcut sends
+      (subject <b>BUDGET</b>). Gmail is opened read-only, and the password stays in your Mac's Keychain.</p>
     <form data-gmail class="space-y-3" autocomplete="off">
       <label class="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
         <input type="checkbox" name="enabled" class="rounded border-slate-300" ${cfg.enabled ? "checked" : ""}>
@@ -1476,7 +1596,7 @@ async function reviewSection(el, { onChange } = {}) {
 const emailWatch = { lastRun: null };
 
 function setReviewBadge(n) {
-  $$('[data-route="import"]').forEach((a) => {
+  $$('[data-route="transactions"]').forEach((a) => {
     let b = $("[data-badge]", a);
     if (!n) { b?.remove(); return; }
     if (!b) {
@@ -1512,7 +1632,7 @@ async function pollEmail() {
                last.review ? plural(last.review, "needs review", "need review") : ""].filter(Boolean).join(" · ");
   toast(msg, "ok", 6000);
   const { route } = parseHash();
-  if (["dashboard", "transactions"].includes(route) && $("#modal").classList.contains("hidden")) render();
+  if (["home", "transactions"].includes(route) && $("#modal").classList.contains("hidden")) render();
 }
 
 /* ===========================================================================
@@ -1534,14 +1654,9 @@ function deviceName(ua) {
 }
 
 async function settingsPhone(el) {
-  el.className = "card p-5";
   let st = await api("/api/phone");
   function render() {
     el.innerHTML = `
-      <div class="flex items-baseline justify-between gap-2 flex-wrap mb-1">
-        <h2 class="font-semibold">Phone access</h2>
-        <span class="text-xs ${st.running ? "text-emerald-700" : "text-slate-400"}">${st.running ? "● On" : "Off"}</span>
-      </div>
       <p class="text-sm text-slate-500 mb-4">Open Budget in Safari on your phone while it's on the same Wi-Fi as this Mac and Budget is open.
         Phones sign in with a password; they can use everything except these Mac-only settings.</p>
       ${st.available ? "" : `<p class="text-sm text-amber-700 mb-3">Not available in browser mode. Open the Budget app (or <code>python3 run.py</code>) to use it.</p>`}
@@ -1586,6 +1701,7 @@ async function settingsPhone(el) {
         st = await api("/api/phone", { method: "PUT", body: { enabled: form.enabled.checked, port, password: form.password.value || null } });
         render();
         toast(st.error ? "Saved, but phone access couldn't start" : st.running ? "Phone access is on" : "Saved", st.error ? "error" : "ok");
+        settingsHooks.refreshSummaries?.();
       } catch (err) { toast(err.message, "error"); }
     });
     $("[data-signout-all]", el)?.addEventListener("click", async () => {
@@ -1598,9 +1714,7 @@ async function settingsPhone(el) {
 }
 
 function settingsThisPhone(el) {
-  el.className = "card p-5";
   el.innerHTML = `
-    <h2 class="font-semibold mb-1">This device</h2>
     <p class="text-sm text-slate-500 mb-3">You're signed in over Wi-Fi. Gmail and phone access settings can only be changed on the Mac.</p>
     <button data-signout class="btn btn-secondary">Sign out</button>`;
   $("[data-signout]", el).addEventListener("click", async () => {
@@ -1614,34 +1728,37 @@ function settingsThisPhone(el) {
    ======================================================================== */
 
 const NAV = [
-  { route: "dashboard", label: "Dashboard", icon: `<path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 5-6"/>` },
+  { route: "home", label: "Home", icon: `<path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v10h14V10"/>` },
   { route: "transactions", label: "Transactions", icon: `<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>` },
-  { route: "add", label: "Add", icon: `<circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/>` },
-  { route: "import", label: "Import", icon: `<path d="M12 4v12M7 11l5 5 5-5M4 20h16"/>` },
-  { route: "settings", label: "Settings", icon: `<path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/>` },
+  { route: "add", label: "Add", icon: `<path d="M12 7v10M7 12h10"/>` },
+  { route: "settings", label: "Settings", icon: `<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>` },
 ];
 
 const VIEWS = {
-  dashboard: viewDashboard,
+  home: viewDashboard,
   transactions: viewTransactions,
   add: viewAdd,
   import: viewImport,
   settings: viewSettings,
 };
+const ALIASES = { dashboard: "home" };   // old links
 
 function buildNav() {
   $("#top-nav").innerHTML = NAV.filter((n) => n.route !== "add").map((n) =>
     `<a href="#/${n.route}" data-route="${n.route}" class="nav-link rounded-lg px-3 py-1.5 hover:text-slate-900">${n.label}</a>`).join("");
-  $("#bottom-nav").innerHTML = NAV.map((n) =>
-    `<a href="#/${n.route}" data-route="${n.route}" class="bottom-link flex flex-col items-center gap-0.5 py-2">
-      <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24">${n.icon}</svg>
-      ${n.label}</a>`).join("");
+  const svg = (icon, cls) => `<svg class="${cls}" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24">${icon}</svg>`;
+  $("#bottom-nav").innerHTML = NAV.map((n) => n.route === "add"
+    ? `<a href="#/add" data-route="add" aria-label="Add expense" class="flex items-center justify-center py-1.5">
+        <span class="w-12 h-12 -mt-5 rounded-full bg-accent text-on-accent shadow-lg inline-flex items-center justify-center">${svg(n.icon, "w-7 h-7")}</span></a>`
+    : `<a href="#/${n.route}" data-route="${n.route}" class="bottom-link flex flex-col items-center gap-0.5 py-2">
+        ${svg(n.icon, "w-6 h-6")}${n.label}</a>`).join("");
 }
 
 function parseHash() {
   const h = location.hash.replace(/^#\/?/, "");
   const [path, qs] = h.split("?");
-  return { route: VIEWS[path] ? path : "dashboard", params: new URLSearchParams(qs || "") };
+  const route = ALIASES[path] || path;
+  return { route: VIEWS[route] ? route : "home", params: new URLSearchParams(qs || "") };
 }
 
 async function render() {
@@ -1661,8 +1778,21 @@ async function render() {
 }
 
 window.addEventListener("hashchange", render);
+
+// Charts take their colours when drawn, so redraw Home after a theme change.
+window.addEventListener("themechange", () => { if (state.charts.length) render(); });
+
+// "N" adds an expense from anywhere (when you're not typing).
+document.addEventListener("keydown", (e) => {
+  if (e.key.toLowerCase() !== "n" || e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.target.closest("input, textarea, select, [contenteditable]") || !$("#modal").classList.contains("hidden")) return;
+  e.preventDefault();
+  location.hash = "#/add";
+});
+
 (async function start() {
   try { state.local = (await (await fetch("/api/auth/me")).json()).local; } catch { /* assume local */ }
+  try { const p = await api("/api/preferences"); if (p.theme !== Theme.choice) Theme.set(p.theme); } catch { /* keep the cached theme */ }
   buildNav();
   try { await loadCategories(); } catch (e) { toast("Can't reach the server: " + e.message, "error"); }
   render();
