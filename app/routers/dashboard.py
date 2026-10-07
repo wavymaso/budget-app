@@ -24,14 +24,15 @@ def dashboard(
     start, end = Date.fromisoformat(status["start"]), Date.fromisoformat(status["end"])
 
     # Daily totals for every day in the period (zeros included).
-    per_day = dict(db.execute(
-        "SELECT date, SUM(amount_cents) FROM expenses WHERE date BETWEEN ? AND ? GROUP BY date",
+    per_day = {r[0]: (r[1], r[2]) for r in db.execute(
+        "SELECT date, SUM(amount_cents), COUNT(*) FROM expenses WHERE date BETWEEN ? AND ? GROUP BY date",
         (start.isoformat(), end.isoformat()),
-    ).fetchall())
+    )}
     daily = []
     d = start
     while d <= end:
-        daily.append({"date": d.isoformat(), "cents": per_day.get(d.isoformat(), 0)})
+        cents, count = per_day.get(d.isoformat(), (0, 0))
+        daily.append({"date": d.isoformat(), "cents": cents, "count": count})
         d += timedelta(days=1)
 
     # Month-by-month trend ending with the month of the selected period.

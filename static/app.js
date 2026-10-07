@@ -512,7 +512,7 @@ async function frequentMerchants(n = 6) {
   } catch { return []; }
 }
 
-async function viewAdd(root) {
+async function viewAdd(root, params) {
   root.innerHTML = `
     <div class="max-w-lg mx-auto">
       <h1 class="text-xl font-semibold text-slate-900 mb-4">Add expense</h1>
@@ -530,6 +530,9 @@ async function viewAdd(root) {
     },
   });
   $("[data-form]", root).append(form);
+  // Coming from a day in the calendar heatmap: start on that date.
+  const day = params?.get("date");
+  if (day && parseDate(day)) { form.date.value = fmtDate(day); form.date.dispatchEvent(new Event("change")); }
   setTimeout(() => form.amount.focus(), 0);
 }
 
@@ -1371,6 +1374,110 @@ async function monthSummary(sv) {
   </section>`;
 }
 
+/* --- Calendar heatmap: one cell per day, darker = more spent ------------- */
+
+// One blue ramp, light -> dark (the default sequential hue). Dark themes flip it,
+// so the biggest days are the brightest. Text colours were checked for contrast.
+const HEAT = {
+  light: { fill: ["#cde2fb", "#86b6ef", "#256abf", "#104281"], ink: ["#18181b", "#18181b", "#ffffff", "#ffffff"] },
+  dark: { fill: ["#104281", "#256abf", "#86b6ef", "#cde2fb"], ink: ["#ffffff", "#ffffff", "#18181b", "#18181b"] },
+};
+const dayLong = new Intl.DateTimeFormat("en-GB", { weekday: "long", day: "numeric", month: "long" });
+
+/** Quartiles of the month's spending days, so one big day (rent) doesn't wash out the rest. */
+function heatLevels(days) {
+  const v = days.map((d) => d.cents).filter((c) => c > 0).sort((a, b) => a - b);
+  const q = (p) => v.length ? v[Math.min(v.length - 1, Math.floor(p * v.length))] : 0;
+  const cuts = [q(0.25), q(0.5), q(0.75)];
+  return (cents) => cents <= 0 ? -1 : cents <= cuts[0] ? 0 : cents <= cuts[1] ? 1 : cents <= cuts[2] ? 2 : 3;
+}
+
+function heatmapCard(d) {
+  const mode = document.documentElement.dataset.mode === "dark" ? "dark" : "light";
+  const ramp = HEAT[mode];
+  const level = heatLevels(d.daily.filter((x) => x.date <= d.today));
+  const first = dateObj(d.daily[0].date);
+  const lead = (first.getDay() + 6) % 7;            // Monday-first grid
+  const spent = d.daily.filter((x) => x.cents > 0);
+  const top = spent.length ? spent.reduce((a, b) => (b.cents > a.cents ? b : a)) : null;
+  const cells = d.daily.map((x) => {
+    const future = x.date > d.today;
+    const lv = future ? -1 : level(x.cents);
+    const day = Number(x.date.slice(8));
+    const style = lv >= 0 ? `background:${ramp.fill[lv]};color:${ramp.ink[lv]}` : "";
+    const label = `${dayLong.format(dateObj(x.date))}: ${future ? "not yet" : x.cents ? `${fmtMoney(x.cents)}, ${plural(x.count, "expense", "expenses")}` : "nothing spent"}`;
+    return `<button type="button" data-heat-day="${x.date}" ${future ? "disabled" : ""} aria-label="${esc(label)}"
+        data-tip="${esc(label)}"
+        class="relative h-12 sm:h-16 rounded-lg text-left p-1.5 sm:p-2 transition
+          ${lv < 0 ? (future ? "border border-dashed border-slate-200 text-slate-300" : "bg-slate-100 text-slate-400 hover:bg-slate-200") : "hover:brightness-110"}
+          ${x.date === d.today ? "ring-2 ring-accent ring-offset-2 ring-offset-surface" : ""}"
+        style="${style}">
+        <span class="block text-[11px] sm:text-xs font-medium leading-none tabular">${day}</span>
+        ${x.cents > 0 && !future ? `<span class="hidden sm:block absolute bottom-1.5 right-2 text-[11px] tabular opacity-90">${fmtMoneyShort(Math.round(x.cents / 100) * 100).replace(/\s?€/, "")}€</span>` : ""}
+      </button>`;
+  });
+  return `<section class="card p-5 lg:col-span-2">
+    <div class="flex flex-wrap items-baseline justify-between gap-2 mb-1">
+      <h3 class="font-semibold text-slate-900">Spending by day in ${monthOnly.format(dateObj(d.start))}</h3>
+      <span class="flex items-center gap-1.5 text-xs text-slate-500" aria-hidden="true">Less
+        ${ramp.fill.map((c) => `<span class="w-3.5 h-3.5 rounded" style="background:${c}"></span>`).join("")} More</span>
+    </div>
+    <p class="text-sm text-slate-500 mb-4">${top ? `Biggest day: <b class="text-slate-900">${esc(dayLong.format(dateObj(top.date)))}</b>, ${fmtMoney(top.cents)}. ` : ""}Tap a day to see what you bought.</p>
+    <div class="grid grid-cols-7 gap-1.5 sm:gap-2">
+      ${["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((w) => `<span class="text-[11px] text-slate-400 text-center">${w}</span>`).join("")}
+      ${"<span></span>".repeat(lead)}${cells.join("")}
+    </div>
+  </section>`;
+}
+
+/** Hover tooltip for heatmap cells (keyboard users get the same text as the button's label). */
+function wireHeatmap(root) {
+  let tip = $("#heat-tip");
+  if (!tip) {
+    tip = document.createElement("div");
+    tip.id = "heat-tip";
+    tip.className = "hidden fixed z-40 pointer-events-none rounded-lg bg-slate-900 text-slate-50 text-xs px-2.5 py-1.5 shadow-lg";
+    document.body.append(tip);
+  }
+  root.addEventListener("pointerover", (e) => {
+    const c = e.target.closest("[data-tip]");
+    if (!c) return;
+    tip.textContent = c.dataset.tip;
+    const r = c.getBoundingClientRect();
+    tip.classList.remove("hidden");
+    const w = tip.offsetWidth;
+    tip.style.left = `${Math.max(8, Math.min(innerWidth - w - 8, r.left + r.width / 2 - w / 2))}px`;
+    tip.style.top = `${r.top - tip.offsetHeight - 8}px`;
+  });
+  root.addEventListener("pointerout", (e) => { if (e.target.closest("[data-tip]")) tip.classList.add("hidden"); });
+  root.addEventListener("click", (e) => {
+    const c = e.target.closest("[data-heat-day]");
+    if (!c) return;
+    tip.classList.add("hidden");
+    openDay(c.dataset.heatDay);
+  });
+}
+
+/** A panel with one day's expenses; tap one to edit it. */
+async function openDay(iso) {
+  const body = document.createElement("div");
+  async function load() {
+    const data = await api(`/api/expenses?date_from=${iso}&date_to=${iso}&limit=200&sort=amount&order=desc`);
+    body.innerHTML = `
+      <p class="text-sm text-slate-500 -mt-2 mb-4">${data.count ? `<b class="text-slate-900 tabular">${fmtMoney(data.total_cents)}</b> · ${plural(data.count, "expense", "expenses")}` : "Nothing spent this day."}</p>
+      ${data.count ? `<div data-list class="-mx-5 divide-y divide-slate-100 border-y border-slate-100">${data.items.map((e) => expenseRow(e, { showDate: false })).join("")}</div>` : ""}
+      <div class="flex justify-between items-center mt-4">
+        <a href="#/transactions?date_from=${iso}&date_to=${iso}" class="link">Open in Transactions</a>
+        <a href="#/add?date=${iso}" class="btn btn-secondary !py-1.5">+ Add for this day</a>
+      </div>`;
+    const list = $("[data-list]", body);
+    // Editing opens its own dialog; come back to this day afterwards.
+    if (list) wireExpenseRows(list, { find: (fn) => data.items.find(fn) }, () => { render(); setTimeout(() => openDay(iso), 50); });
+  }
+  await load();
+  openModal(dayLong.format(dateObj(iso)), body);
+}
+
 let trendsOpen = false;   // remembered while the app is open
 
 async function viewDashboard(root, params) {
@@ -1433,17 +1540,14 @@ async function viewDashboard(root, params) {
       <button data-toggle-trends class="btn btn-ghost">${trendsOpen ? "Hide trends" : "Show trends"}</button>
     </div>
     <div data-trends class="${trendsOpen ? "" : "hidden"} grid lg:grid-cols-2 gap-4 mt-2">
+      ${heatmapCard(d)}
       <section class="card p-5">
         <h3 class="font-semibold text-slate-900 mb-3">Month by month</h3>
         <div class="h-52"><canvas data-trend aria-label="Spending per month"></canvas></div>
       </section>
       <section class="card p-5">
-        <h3 class="font-semibold text-slate-900 mb-3">Day by day in ${monthOnly.format(dateObj(d.start))}</h3>
-        <div class="h-52"><canvas data-daily aria-label="Spending per day"></canvas></div>
-      </section>
-      <section class="card p-5 lg:col-span-2">
         <h3 class="font-semibold text-slate-900 mb-3">Where you spend most</h3>
-        ${d.top_merchants.length ? `<ol class="grid sm:grid-cols-2 gap-x-8 gap-y-2">${d.top_merchants.map((m) => `
+        ${d.top_merchants.length ? `<ol class="space-y-1">${d.top_merchants.map((m) => `
           <li><a href="${txLink(`&q=${encodeURIComponent(m.merchant)}`)}" class="flex items-center gap-3 rounded-lg -mx-2 px-2 py-1.5 hover:bg-slate-50 text-sm">
             ${categoryAvatar(m.category_name, m.category_color)}
             <span class="flex-1 min-w-0"><span class="block truncate text-slate-800">${esc(m.merchant)}</span>
@@ -1454,6 +1558,7 @@ async function viewDashboard(root, params) {
     </div>`;
 
   wireExpenseRows($("[data-recent]", root), { find: (fn) => recent.items.find(fn) }, render);
+  wireHeatmap($("[data-trends]", root));
   $("[data-snooze-shortcut]", root)?.addEventListener("click", async (e) => {
     e.target.closest(".rounded-xl").remove();
     await savePrefs({ shortcut_snoozed_until: addDaysISO(todayISO(), 7) });
@@ -1491,25 +1596,6 @@ async function viewDashboard(root, params) {
           tooltip: { callbacks: { title: (items) => monthName.format(dateObj(d.trend[items[0].dataIndex].month + "-01")), label: moneyTooltip } } },
         scales: axes(10000),
         onClick: (_, els) => { if (els.length) location.hash = go(d.trend[els[0].index].month + "-01"); },
-      },
-    });
-    makeChart($("[data-daily]", root), {
-      type: "bar",
-      data: {
-        labels: d.daily.map((x) => String(Number(x.date.slice(8)))),
-        datasets: [{ label: "Spent", data: d.daily.map((x) => x.cents), borderRadius: 4, borderSkipped: "start", maxBarThickness: 18,
-          backgroundColor: d.daily.map((x) => x.date > d.today ? ink.seriesSoft : ink.series) }],
-      },
-      options: {
-        maintainAspectRatio: false,
-        plugins: { legend: { display: false },
-          tooltip: { callbacks: { title: (items) => fmtDate(d.daily[items[0].dataIndex].date), label: moneyTooltip } } },
-        scales: axes(2000),
-        onClick: (_, els) => {
-          if (!els.length) return;
-          const day = d.daily[els[0].index].date;
-          location.hash = `#/transactions?date_from=${day}&date_to=${day}`;
-        },
       },
     });
   }
