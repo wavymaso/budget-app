@@ -60,7 +60,7 @@ def summary(db: sqlite3.Connection, today: Date | None = None) -> dict:
     cfg = get_config(db)
     if cfg["enabled"]:
         close_months(db, today)
-    months = [dict(r) for r in db.execute("SELECT * FROM savings_months ORDER BY month DESC")]
+    months = [dict(r) for r in db.execute("SELECT month, limit_cents, spent_cents, saved_cents FROM savings_months ORDER BY month DESC")]
     moves = [dict(r) for r in db.execute("SELECT id, date, amount_cents, note FROM savings_moves ORDER BY date DESC, id DESC")]
     total = sum(m["saved_cents"] for m in months) + sum(m["amount_cents"] for m in moves)
     return {**cfg, "total_cents": total, "months": months, "moves": moves}

@@ -29,6 +29,10 @@ def create(db: sqlite3.Connection, *, expense_id: int, merchant: str, amount_cen
     return cur.lastrowid
 
 
+def occurrence_uid(bill_uid: str, date: str) -> str:
+    return f"rec:{bill_uid}:{date}"
+
+
 def add_due(db: sqlite3.Connection, today: Date | None = None) -> int:
     """Add every bill whose date has come. Returns how many expenses were added."""
     today = today or Date.today()
@@ -38,12 +42,14 @@ def add_due(db: sqlite3.Connection, today: Date | None = None) -> int:
         for _ in range(MAX_CATCH_UP):
             if nxt > today:
                 break
+            # The same uid on the Mac and the iPhone, so a bill added by both counts once.
             db.execute(
-                """INSERT INTO expenses (amount_cents, merchant_raw, merchant_norm, category_id, date, note,
-                                         source, category_source, recurring_id)
-                   VALUES (?, ?, ?, ?, ?, ?, 'recurring', ?, ?)""",
+                """INSERT OR IGNORE INTO expenses (amount_cents, merchant_raw, merchant_norm, category_id, date, note,
+                                         source, category_source, recurring_id, uid)
+                   VALUES (?, ?, ?, ?, ?, ?, 'recurring', ?, ?, ?)""",
                 (r["amount_cents"], r["merchant"], normalize_merchant(r["merchant"]), r["category_id"],
-                 nxt.isoformat(), r["note"], "manual" if r["category_id"] else "none", r["id"]),
+                 nxt.isoformat(), r["note"], "manual" if r["category_id"] else "none", r["id"],
+                 occurrence_uid(r["uid"], nxt.isoformat())),
             )
             added += 1
             nxt = next_month(nxt, r["day"])

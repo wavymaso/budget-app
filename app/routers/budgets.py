@@ -50,11 +50,12 @@ def set_limit(body: LimitIn, db: sqlite3.Connection = Depends(get_db)):
         "SELECT 1 FROM categories WHERE id = ?", (body.category_id,)
     ).fetchone():
         raise HTTPException(422, "That category doesn't exist")
-    db.execute(
-        "DELETE FROM budgets WHERE COALESCE(category_id, 0) = COALESCE(?, 0) AND period = ?",
-        (body.category_id, body.period),
-    )
-    if body.limit is not None:
+    where = "COALESCE(category_id, 0) = COALESCE(?, 0) AND period = ?"
+    if body.limit is None:
+        db.execute(f"DELETE FROM budgets WHERE {where}", (body.category_id, body.period))
+    elif not db.execute(f"UPDATE budgets SET limit_cents = ? WHERE {where}",
+                        (to_cents(body.limit), body.category_id, body.period)).rowcount:
+        # (updated in place, so the limit keeps its sync id)
         db.execute(
             "INSERT INTO budgets (category_id, period, limit_cents) VALUES (?, ?, ?)",
             (body.category_id, body.period, to_cents(body.limit)),

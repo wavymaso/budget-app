@@ -215,6 +215,8 @@ def _upgrade(conn: sqlite3.Connection) -> None:
     if "client_id" not in columns:   # expenses a phone saved offline and sent later
         conn.execute("ALTER TABLE expenses ADD COLUMN client_id TEXT")
     conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_expenses_client ON expenses(client_id) WHERE client_id IS NOT NULL")
+    from . import sync
+    sync.install(conn)   # ids, change counters and triggers for the iPhone app
 
 
 def _seed(conn: sqlite3.Connection) -> None:
