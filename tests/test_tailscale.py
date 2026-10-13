@@ -48,3 +48,10 @@ def test_https_not_turned_on_yet(monkeypatch):
     s = ts.publish(8000)
     assert s.enable_url == "https://login.tailscale.com/f/serve?node=abc123"
     assert s.url is None and "HTTPS" in s.error
+
+
+def test_address_only_counts_when_it_points_at_budget(monkeypatch):
+    web = {"Web": {"mac.tail1.ts.net:443": {"Handlers": {"/": {"Proxy": "http://127.0.0.1:8000"}}}}}
+    fake(monkeypatch, {"serve status": (json.dumps(web), 0)})
+    assert ts.address(port=8000) == "https://mac.tail1.ts.net"
+    assert ts.address(port=8123) is None

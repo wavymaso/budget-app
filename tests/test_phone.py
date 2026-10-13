@@ -129,6 +129,8 @@ def test_turning_phone_access_on_and_off(mac, monkeypatch):
             self.running, self.port = enabled, port
         def urls(self):
             return [f"http://mac.local:{self.port}"] if self.running else []
+        def refresh_tailscale(self):
+            pass
 
     monkeypatch.setattr(server, "phone_access", FakePhoneAccess())
     set_password(mac)

@@ -111,13 +111,16 @@ def publish(port: int) -> Status:
     return s
 
 
-def address() -> str | None:
-    """The https:// address `tailscale serve` is publishing, if any."""
+def address(port: int | None = None) -> str | None:
+    """The https:// address `tailscale serve` is publishing, if any (for `port`, if given)."""
     try:
         data = json.loads(_run(["serve", "status", "--json"]).stdout or "{}")
     except (OSError, subprocess.SubprocessError, ValueError):
         return None
-    for host in (data.get("Web") or {}):
+    for host, conf in (data.get("Web") or {}).items():
+        targets = [h.get("Proxy", "") for h in ((conf or {}).get("Handlers") or {}).values()]
+        if port is not None and targets and not any(t.rstrip("/").endswith(f":{port}") for t in targets):
+            continue
         name = host.rsplit(":", 1)[0]
         return f"https://{name}" if host.endswith(":443") else f"https://{host}"
     return None

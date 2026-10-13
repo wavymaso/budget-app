@@ -62,6 +62,8 @@ class PhoneIn(BaseModel):
 def _phone_status(db: sqlite3.Connection) -> dict:
     cfg = auth.phone_settings(db)
     pa = server.phone_access
+    if pa is not None:
+        pa.refresh_tailscale()
     return {
         **cfg,
         "has_password": auth.has_password(db),

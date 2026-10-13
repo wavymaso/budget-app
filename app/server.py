@@ -145,6 +145,22 @@ class PhoneAccess:
         # "Mac not reachable" and keeps working offline. It's republished on launch.
         self.apply(False, 0, tailscale=False)
 
+    def refresh_tailscale(self) -> None:
+        """Tailscale installed or set up after Budget started: pick up the address
+        it's already publishing for us instead of saying "install Tailscale"."""
+        if not self.running or self.tailscale.get("url") or self.tailscale.get("pending"):
+            return
+        from . import tailscale as ts
+        try:
+            published = ts.address(port=self.port)
+        except Exception:
+            return
+        if published:
+            self.tailscale = {"installed": True, "connected": True, "url": published, "error": None, "enable_url": None}
+        elif ts.cli() and not self.tailscale.get("installed"):
+            self.tailscale = {**self.tailscale, "pending": True}
+            threading.Thread(target=self._publish, args=(self.port,), name="budget-tailscale", daemon=True).start()
+
     def urls(self) -> list[str]:
         if not self.running:
             return []
