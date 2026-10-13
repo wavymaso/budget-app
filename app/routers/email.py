@@ -53,7 +53,7 @@ def write_settings(body: SettingsIn, db: sqlite3.Connection = Depends(get_db)):
         try:
             gmail.set_password(address, gmail.clean_app_password(body.password))
         except Exception as exc:  # noqa: BLE001
-            raise HTTPException(500, f"Couldn't save the password in the Keychain: {exc}")
+            raise HTTPException(500, f"Couldn't save the password: {exc}")
     email_sync.save_config(db, address=address, label=body.label.strip(), enabled=body.enabled)
     return _public_settings(db)
 

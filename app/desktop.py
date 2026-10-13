@@ -2,10 +2,13 @@
 
 Startup:  move old data if needed -> create tables -> start the server in a
           background thread -> open the window (on the main thread, as macOS requires).
-Shutdown: closing the window (or Cmd+Q) returns from webview.start(), then the
-          server is told to exit and we wait for it.
+Shutdown: closing the window (or Cmd+Q / Alt+F4) returns from webview.start(), then
+          the server is told to exit and we wait for it.
+
+Works on macOS (WebKit) and Windows (Edge WebView2, built into Windows 10 and 11).
 """
 import logging
+import os
 import subprocess
 import sys
 import threading
@@ -48,17 +51,32 @@ class DesktopApi:
 
     def show_data_folder(self) -> None:
         config.DATA_DIR.mkdir(parents=True, exist_ok=True)
-        subprocess.run(["open", str(config.DATA_DIR)], check=False)
+        reveal(config.DATA_DIR)
 
     def show_in_finder(self, path: str) -> None:
+        """Show a file (a backup) selected in Finder or Explorer."""
         target = Path(path).resolve()
         if config.DATA_DIR.resolve() in target.parents and target.exists():
-            subprocess.run(["open", "-R", str(target)], check=False)
+            reveal(target, select=True)
+
+
+def reveal(path: Path, select: bool = False) -> None:
+    """Open a folder, or show a file selected in it, in Finder / Explorer."""
+    if sys.platform == "win32":
+        if select:
+            subprocess.run(["explorer", f"/select,{path}"], check=False)
+        else:
+            os.startfile(path)  # noqa: S606 - opens the folder in Explorer
+    elif sys.platform == "darwin":
+        subprocess.run(["open", "-R", str(path)] if select else ["open", str(path)], check=False)
+    else:
+        subprocess.run(["xdg-open", str(path.parent if select else path)], check=False)
 
 
 def setup_logging() -> None:
     if config.FROZEN:
-        # A double-clicked app has nowhere to print to; keep a log in ~/Library/Logs/Budget.
+        # A double-clicked app has nowhere to print to; keep a log file instead
+        # (~/Library/Logs/Budget on a Mac, %LOCALAPPDATA%\\Budget\\Logs on Windows).
         config.LOG_DIR.mkdir(parents=True, exist_ok=True)
         log_file = open(config.LOG_DIR / "budget.log", "a", buffering=1, encoding="utf-8")
         sys.stdout = sys.stderr = log_file
@@ -69,7 +87,7 @@ def setup_logging() -> None:
 def set_dev_dock_icon() -> None:
     """When run from source, show the Budget icon in the Dock instead of Python's."""
     icon = config.BASE_DIR / "macos" / "icon.png"
-    if config.FROZEN or not icon.exists():
+    if config.FROZEN or not config.MAC or not icon.exists():
         return
     try:
         from AppKit import NSApplication, NSImage
@@ -133,6 +151,31 @@ def main(lan: bool | None = None, port: int | None = None, debug: bool = False) 
     window.events.closing += shutdown   # pywebview waits for "closing" handlers
     set_dev_dock_icon()
     try:
-        webview.start(debug=debug)
+        # Windows: insist on Edge WebView2 rather than falling back to Internet Explorer.
+        webview.start(debug=debug, gui="edgechromium" if config.WINDOWS else None)
     finally:
         shutdown()
+
+
+def smoke_test() -> int:
+    """Start the server against a throwaway data folder and fetch the page and an API.
+
+    Used by the Windows build on GitHub (`Budget.exe --smoke-test`) to prove the
+    packaged app starts. Returns a process exit code: 0 when everything answered.
+    """
+    import urllib.request
+    try:
+        init_db()
+        server = BackgroundServer("127.0.0.1", 0)
+        server.start()
+        try:
+            for path in ("/", "/static/app.js", "/api/preferences", "/api/dashboard"):
+                with urllib.request.urlopen(f"http://127.0.0.1:{server.port}{path}", timeout=10) as r:
+                    if r.status != 200:
+                        return 1
+        finally:
+            server.stop()
+        return 0
+    except Exception:
+        log.exception("Smoke test failed")
+        return 1

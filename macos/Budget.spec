@@ -7,7 +7,7 @@ ROOT = Path(SPECPATH).parent
 VERSION = (ROOT / "VERSION").read_text().strip()
 
 a = Analysis(
-    [str(ROOT / "macos" / "launcher.py")],
+    [str(ROOT / "launcher.py")],
     pathex=[str(ROOT)],
     datas=[(str(ROOT / "static"), "static")],
     hiddenimports=[

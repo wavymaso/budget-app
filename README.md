@@ -1,8 +1,8 @@
 # Budget
 
-A personal budget tracker for your Mac. It's a real app with its own window and a Dock icon, and you open it from Spotlight or Launchpad. Log card spending by hand, from a bank CSV, or automatically from Apple Pay on your iPhone. Budget sorts every expense into a category and shows how you're doing against weekly and monthly limits.
+A personal budget tracker for your Mac or Windows PC. It's a real app with its own window: open it from Spotlight or Launchpad on a Mac, or the Start menu on Windows. Log card spending by hand, from a bank CSV, or automatically from Apple Pay on your iPhone. Budget sorts every expense into a category and shows how you're doing against weekly and monthly limits.
 
-Your data stays on your Mac. There's no account, no cloud and no tracking.
+Your data stays on your computer. There's no account, no cloud and no tracking.
 
 <p align="center">
   <img src="docs/dashboard.png" alt="Home: what's left to spend this month, this week in one line, where the money went and recent expenses" width="720">
@@ -19,7 +19,7 @@ Your data stays on your Mac. There's no account, no cloud and no tracking.
 - **Monthly bills.** Mark Spotify, the gym or rent as monthly once, and they're added by themselves every month.
 - **Savings.** What's left of each month's budget goes into savings, with an optional goal like a trip.
 - **Looks after itself.** A backup every day, a short look back at last month, and a heads-up if your iPhone Shortcut goes quiet.
-- **Themes.** Light, Dark, Sand, Ocean, Lavender, Rose and Noir, or Automatic to follow your Mac or iPhone.
+- **Themes.** Light, Dark, Sand, Ocean, Lavender, Rose and Noir, or Automatic to follow your computer or phone.
 - **Imports.** Bank statement CSVs, with column mapping and duplicate detection, and Apple Pay payments emailed by an iPhone Shortcut and read from Gmail.
 - **Optional AI.** With a Claude API key, merchants it doesn't recognise get a suggested category.
 - Euros, weeks start on Monday, dates as DD/MM/YYYY.
@@ -27,6 +27,20 @@ Your data stays on your Mac. There's no account, no cloud and no tracking.
 ---
 
 ## 1. Install
+
+### On Windows
+
+1. Go to the [Releases page](https://github.com/wavymaso/budget-app/releases/latest) and download **Budget-Setup-….exe**.
+2. Run it. Windows may show **"Windows protected your PC"** because the app isn't signed with a paid certificate: click **More info → Run anyway**.
+3. Open **Budget** from the Start menu (or the desktop shortcut, if you ticked it).
+
+It installs just for you (no administrator rights needed) and needs Windows 10 or 11. The window uses Microsoft Edge WebView2, which Windows 10 and 11 already include; on an old, never-updated Windows 10, install the [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/) if Budget doesn't open. Prefer not to install anything? Download **Budget-…-portable.zip** instead, unzip it anywhere and run `Budget.exe`.
+
+To update, download the newest installer and run it over the old version. Your data is kept (see section 2). Uninstall from **Settings → Apps**; that also leaves your data alone.
+
+Everything in this README works the same on Windows. Where it says Finder, read File Explorer; where it says Keychain, Budget uses Windows Credential Manager; and `Cmd` shortcuts are `Ctrl`.
+
+### On a Mac
 
 **You need:**
 - A Mac with macOS 12 or newer.
@@ -50,15 +64,17 @@ When you open Budget, it starts a small private server on your Mac (on `127.0.0.
 ## 2. Where your data lives
 
 ```
-~/Library/Application Support/Budget/
+Mac:      ~/Library/Application Support/Budget/
+Windows:  %APPDATA%\Budget\        (C:\Users\<you>\AppData\Roaming\Budget)
+
   budget.db       your expenses, categories, limits and learned merchants
   backups/        copies made with "Back up now"
   .env            optional settings (sections 6 and 8)
 ```
 
-The data lives outside the app, so **updating, rebuilding or deleting Budget.app never touches your data**. **Settings → Your data → Show in Finder** opens this folder.
+The data lives outside the app, so **updating, rebuilding or deleting the app never touches your data**. **Settings → Your data → Show in Finder** (Show in File Explorer on Windows) opens this folder.
 
-The app writes a log to `~/Library/Logs/Budget/budget.log`. Look there if it won't start.
+The app writes a log to `~/Library/Logs/Budget/budget.log` on a Mac, or `%LOCALAPPDATA%\Budget\Logs\budget.log` on Windows. Look there if it won't start.
 
 (Very early versions kept the database in the project's `data/` folder. If one is there, Budget copies it over the first time it starts and leaves the original alone.)
 
@@ -82,6 +98,17 @@ python3 run.py --browser  # no window: serve at http://localhost:8000 for a norm
 ```
 
 `run.py` uses the same data folder as the installed app, so don't run both at the same time. When you're happy with a change, `./build.sh --install` puts it in the real app. To change the icon, edit `macos/make_icon.py`, run `.venv/bin/python macos/make_icon.py`, and rebuild.
+
+
+### Publishing a Windows version
+
+Windows builds are made on GitHub, since a Mac can't build a Windows app. Every push to `main` runs the tests on Windows and builds the app (the run's **Artifacts** have it). To publish a new version for Windows users, bump `VERSION`, commit, and push a matching tag:
+
+```bash
+git tag v$(cat VERSION) && git push origin v$(cat VERSION)
+```
+
+A few minutes later the installer and portable zip appear on the Releases page.
 
 ## 3. Using it
 
@@ -290,11 +317,11 @@ While Budget is open on your Mac, you can use the whole app on your phone in Saf
    http://My-MacBook.local:8000
    http://192.168.1.23:8000
    ```
-   The `.local` address keeps working when your Mac's IP address changes.
+   The `.local` address keeps working when your Mac's IP address changes. (Windows shows only the IP address; if it changes, the new one appears here.)
 
 Phone access stays on the next time you open Budget. It starts and stops straight away; no restart needed.
 
-If the macOS firewall is on (**System Settings → Network → Firewall**), macOS asks once whether Budget may accept incoming connections. Click **Allow**.
+If the macOS firewall is on (**System Settings → Network → Firewall**), macOS asks once whether Budget may accept incoming connections. Click **Allow**. On Windows, Windows Defender Firewall asks the same the first time: tick **Private networks** and click **Allow access**.
 
 ### On your phone
 
@@ -376,8 +403,8 @@ Your Mac must be awake, with Budget open, for the Shortcut to work.
 ## 9. Back up and restore your data
 
 - **Automatic backups:** once a day, when Budget opens, it saves `backups/budget-auto-YYYY-MM-DD.db` and keeps the last 14. Backups you make yourself are never deleted.
-- **Back up now:** go to **Settings → Your data → Back up now**. This saves a timestamped copy such as `backups/budget-2026-10-04_17-49-49.db` next to the database. It's safe to do while the app is open. For extra safety, copy the whole `~/Library/Application Support/Budget` folder to iCloud Drive or a USB stick now and then.
-- **Restore:** quit Budget. In `~/Library/Application Support/Budget`, move `budget.db` aside and delete `budget.db-wal` and `budget.db-shm` if they exist. Copy the backup you want to `budget.db` and open Budget again.
+- **Back up now:** go to **Settings → Your data → Back up now**. This saves a timestamped copy such as `backups/budget-2026-10-04_17-49-49.db` next to the database. It's safe to do while the app is open. For extra safety, copy the whole data folder (section 2) to iCloud Drive, OneDrive or a USB stick now and then.
+- **Restore:** quit Budget. In the data folder (section 2), move `budget.db` aside and delete `budget.db-wal` and `budget.db-shm` if they exist. Copy the backup you want to `budget.db` and open Budget again.
 - **Export:** **Settings → Your data → Export all to CSV** opens a Save dialog. The file uses `;` separators and decimal commas, so it opens correctly in Spanish-language Excel and Numbers.
 
 Your data and settings are never inside the project folder, so they can't end up on GitHub. `data/`, `.env`, `build/` and `dist/` are also in `.gitignore`.
@@ -394,6 +421,7 @@ The tests cover merchant clean-up, every categorization layer (including correct
 
 ```
 build.sh               build Budget.app (./build.sh --install also installs it)
+launcher.py            entry point of the built app (Mac and Windows); --smoke-test checks a build
 run.py                 run from source: python3 run.py
 VERSION                app version shown in Finder
 app/
@@ -416,9 +444,14 @@ app/
   routers/             the JSON API (expenses, categories, budgets, dashboard, import/export, preferences, recurring, savings)
 static/                the interface (HTML + JS, login page; Tailwind and Chart.js in static/vendor)
   theme.js             colour themes: every colour is a CSS variable the theme sets
+windows/
+  Budget.spec          PyInstaller recipe for Budget.exe
+  installer.iss        Inno Setup script for Budget-Setup.exe (per-user, no admin)
+  build.ps1            build on a Windows PC from source
+.github/workflows/
+  windows.yml          builds and tests on Windows; a v* tag publishes a release
 macos/
   Budget.spec          PyInstaller recipe
-  launcher.py          entry point inside the app
   make_icon.py         draws icon.png and Budget.icns
 tests/                 pytest tests
 ```

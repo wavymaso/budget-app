@@ -24,7 +24,7 @@ def login_page():
 def login(body: LoginIn, request: Request, response: Response, db: sqlite3.Connection = Depends(get_db)):
     ip = request.client.host if request.client else "?"
     if not auth.has_password(db):
-        raise HTTPException(403, "Phone access has no password yet. Set one on your Mac: Settings → Phone access.")
+        raise HTTPException(403, f"Phone access has no password yet. Set one on your {config.COMPUTER}: Settings → Phone access.")
     wait = auth.seconds_locked_out(ip)
     if wait:
         raise HTTPException(429, f"Too many wrong passwords. Try again in {max(1, wait // 60)} minute(s).")

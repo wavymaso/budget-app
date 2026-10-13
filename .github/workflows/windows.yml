@@ -1,0 +1,76 @@
+# Builds Budget for Windows on GitHub's Windows machines.
+#
+#   Every push to main:  run the tests on Windows and build the app (download it
+#                        from the run's "Artifacts" to try it).
+#   A tag like v1.7.0:   also publish Budget-Setup-1.7.0.exe and a portable zip
+#                        on the repository's Releases page.
+name: Windows
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write   # to publish releases
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Tests
+        run: python -m pytest -q
+
+      - name: Build Budget.exe
+        run: python -m PyInstaller windows\Budget.spec --noconfirm --clean --log-level WARN --distpath dist --workpath build
+
+      - name: Check that the built app starts
+        shell: pwsh
+        run: |
+          $p = Start-Process dist\Budget\Budget.exe -ArgumentList "--smoke-test" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "Smoke test failed (exit code $($p.ExitCode))" }
+
+      - name: Build the installer and portable zip
+        shell: pwsh
+        run: |
+          $version = (Get-Content VERSION).Trim()
+          if (-not (Get-Command iscc -ErrorAction SilentlyContinue)) { choco install innosetup -y --no-progress | Out-Null }
+          $iscc = (Get-Command iscc -ErrorAction SilentlyContinue).Source
+          if (-not $iscc) { $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" }
+          & $iscc /Q "/DVersion=$version" windows\installer.iss
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed" }
+          Compress-Archive -Path dist\Budget -DestinationPath "dist\Budget-$version-portable.zip"
+          Get-ChildItem dist -File | Format-Table Name, Length
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Budget-Windows
+          path: |
+            dist/Budget-Setup-*.exe
+            dist/Budget-*-portable.zip
+
+      - name: Publish the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/Budget-Setup-*.exe
+            dist/Budget-*-portable.zip
+          body: |
+            **Windows:** download the `Budget-Setup-….exe` file below, run it, and open Budget from the Start menu.
+            Windows may say "Windows protected your PC" because the app isn't signed: click **More info → Run anyway**.
+            No installer wanted? Use the portable zip: unzip it anywhere and run `Budget.exe`.
+
+            **Mac:** clone the repository and run `./build.sh --install` (see the README).
