@@ -49,6 +49,12 @@ class DesktopApi:
             conn.close()
         return str(path)
 
+    def open_url(self, url: str) -> None:
+        """Open a web link (e.g. Tailscale's site) in the browser, not in Budget's window."""
+        if isinstance(url, str) and url.startswith("https://"):
+            import webbrowser
+            webbrowser.open(url)
+
     def show_data_folder(self) -> None:
         config.DATA_DIR.mkdir(parents=True, exist_ok=True)
         reveal(config.DATA_DIR)
@@ -121,7 +127,7 @@ def main(lan: bool | None = None, port: int | None = None, debug: bool = False) 
         conn.close()
     lan = config.lan_enabled() if lan is None else lan
     if saved["enabled"] or lan:
-        phone.apply(True, port or saved["port"])
+        phone.apply(True, port or saved["port"], keep_awake=saved.get("keep_awake", True))
         log.info("Phone access on port %s%s", phone.port, f" (error: {phone.error})" if phone.error else "")
 
     poller = Poller()   # checks Gmail now, then every few minutes (if set up)

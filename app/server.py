@@ -1,4 +1,5 @@
 """Run the web app in a background thread (used by the desktop window and phone access)."""
+import os
 import socket
 import subprocess
 import sys
@@ -8,8 +9,18 @@ import time
 import uvicorn
 
 
+def mark_remote(app):
+    """Everything arriving through the phone server is a phone, even when it comes
+    from 127.0.0.1 (Tailscale forwards phone traffic from the Mac itself)."""
+    async def wrapped(scope, receive, send):
+        if scope["type"] in ("http", "websocket"):
+            scope = {**scope, "budget_remote": True}
+        await app(scope, receive, send)
+    return wrapped
+
+
 class BackgroundServer:
-    def __init__(self, host: str, port: int, name: str = "budget-server"):
+    def __init__(self, host: str, port: int, name: str = "budget-server", remote: bool = False):
         # Bind first so we know the port (0 = let the system pick a free one) and so a
         # busy port fails here, with a clear OSError, rather than inside the thread.
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -22,7 +33,7 @@ class BackgroundServer:
         self.host, self.port = host, self.sock.getsockname()[1]
         from .main import app
         self.server = uvicorn.Server(uvicorn.Config(
-            app, log_config=None, log_level="warning",
+            mark_remote(app) if remote else app, log_config=None, log_level="warning",
             loop="asyncio", http="h11", ws="none", lifespan="on",
             proxy_headers=False,   # the client address must be the real one (used for access control)
         ))
@@ -72,6 +83,8 @@ class PhoneAccess:
         self._server: BackgroundServer | None = None
         self._lock = threading.Lock()
         self.error: str | None = None
+        self.tailscale: dict = {"installed": False, "connected": False, "url": None, "error": None, "enable_url": None}
+        self._awake: subprocess.Popen | None = None
 
     @property
     def running(self) -> bool:
@@ -81,31 +94,63 @@ class PhoneAccess:
     def port(self) -> int | None:
         return self._server.port if self._server else None
 
-    def apply(self, enabled: bool, port: int) -> None:
+    def apply(self, enabled: bool, port: int, keep_awake: bool = True, tailscale: bool = True) -> None:
         with self._lock:
+            was_running = self._server is not None
             if self._server and (not enabled or self._server.port != port):
                 self._server.stop()
                 self._server = None
             self.error = None
             if enabled and self._server is None:
                 try:
-                    server = BackgroundServer("0.0.0.0", port, name="budget-phone-server")
+                    server = BackgroundServer("0.0.0.0", port, name="budget-phone-server", remote=True)
                     server.start()
                     self._server = server
                 except OSError as exc:
                     self.error = (f"Port {port} is already in use by another program. Pick another port."
-                                  if getattr(exc, "errno", None) == 48 else f"Couldn't open port {port}: {exc}")
+                                  if getattr(exc, "errno", None) in (48, 98, 10048) else f"Couldn't open port {port}: {exc}")
                 except RuntimeError as exc:
                     self.error = str(exc)
+            self._set_awake(enabled and keep_awake and self._server is not None)
+        if tailscale and self._server is not None:
+            self.tailscale = {**self.tailscale, "pending": True}
+            threading.Thread(target=self._publish, args=(self._server.port,), name="budget-tailscale", daemon=True).start()
+        elif tailscale and was_running and not enabled:
+            from . import tailscale as ts
+            threading.Thread(target=ts.unpublish, name="budget-tailscale", daemon=True).start()
+            self.tailscale = {**self.tailscale, "url": None, "pending": False}
+
+    def _publish(self, port: int) -> None:
+        from . import tailscale as ts
+        try:
+            self.tailscale = {**ts.publish(port).as_dict(), "pending": False}
+        except Exception as exc:  # never let Tailscale trouble break phone access on Wi-Fi
+            self.tailscale = {"installed": True, "connected": False, "url": None,
+                              "error": f"Tailscale: {exc}", "enable_url": None, "pending": False}
+
+    def _set_awake(self, on: bool) -> None:
+        """Keep the Mac from sleeping while it's plugged in and phone access is on
+        (macOS `caffeinate -s`, which only applies on mains power)."""
+        if on and self._awake is None and sys.platform == "darwin":
+            try:
+                self._awake = subprocess.Popen(["caffeinate", "-s", "-w", str(os.getpid())])
+            except OSError:
+                self._awake = None
+        elif not on and self._awake is not None:
+            self._awake.terminate()
+            self._awake = None
 
     def stop(self) -> None:
-        self.apply(False, 0)
+        # Leave Tailscale Serve set up: while Budget is closed the phone simply sees
+        # "Mac not reachable" and keeps working offline. It's republished on launch.
+        self.apply(False, 0, tailscale=False)
 
     def urls(self) -> list[str]:
         if not self.running:
             return []
         hosts = [h for h in (local_hostname(), lan_ip()) if h]
-        return [f"http://{h}:{self.port}" for h in hosts]
+        anywhere = [self.tailscale["url"]] if self.tailscale.get("url") else []
+        return anywhere + [f"http://{h}:{self.port}" for h in hosts]
 
 
 # Set by the desktop app; None when running without a window (run.py --browser).

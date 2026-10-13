@@ -150,7 +150,12 @@ def resolve_category(
 
 
 @router.post("", status_code=201)
-def create_expense(body: ExpenseIn, db: sqlite3.Connection = Depends(get_db)):
+def create_expense(body: ExpenseIn, response: Response, db: sqlite3.Connection = Depends(get_db)):
+    if body.client_id:
+        seen = db.execute("SELECT id FROM expenses WHERE client_id = ?", (body.client_id,)).fetchone()
+        if seen:   # a phone sending an offline expense again: it's already here
+            response.status_code = 200
+            return fetch_expense(db, seen["id"])
     category_id, category_source = resolve_category(db, body, use_ai=False)
     expense_id = insert_expense(
         db,
@@ -162,6 +167,8 @@ def create_expense(body: ExpenseIn, db: sqlite3.Connection = Depends(get_db)):
         category_source=category_source,
         source="manual",
     )
+    if body.client_id:
+        db.execute("UPDATE expenses SET client_id = ? WHERE id = ?", (body.client_id, expense_id))
     if body.repeat_monthly:
         recurring.create(db, expense_id=expense_id, merchant=body.merchant, amount_cents=to_cents(body.amount),
                          category_id=category_id, note=body.note, first=body.date or Date.today())

@@ -88,14 +88,27 @@ function debounce(fn, ms) {
 let uidCounter = 0;
 const uid = (p = "f") => `${p}${++uidCounter}`;
 
-async function api(path, { method = "GET", body } = {}) {
+class OfflineError extends Error {}
+
+async function api(path, { method = "GET", body, timeout = 0 } = {}) {
   const opts = { method, headers: {} };
   if (body instanceof FormData) opts.body = body;
   else if (body !== undefined) {
     opts.headers["Content-Type"] = "application/json";
     opts.body = JSON.stringify(body);
   }
-  const res = await fetch(path, opts);
+  let res;
+  const ctl = timeout ? new AbortController() : null;
+  const timer = ctl && setTimeout(() => ctl.abort(), timeout);
+  try { res = await fetch(path, ctl ? { ...opts, signal: ctl.signal } : opts); }
+  catch { if (!state.local) Offline.mark(""); throw new OfflineError(`Your ${computer()} can't be reached right now.`); }
+  finally { if (timer) clearTimeout(timer); }
+  if (!state.local) {
+    const off = res.headers.get("X-Budget-Offline");
+    if (off != null) Offline.mark(off === "none" ? "" : off);
+    else if (res.ok) Offline.clear();
+    if (off === "none" || (res.status >= 502 && res.status <= 504)) throw new OfflineError(`Your ${computer()} can't be reached right now.`);
+  }
   if (res.status === 401 && !state.local) { location.replace("/login"); throw new Error("Please sign in"); }
   if (!res.ok) {
     let msg = `Request failed (${res.status})`;
@@ -108,6 +121,58 @@ async function api(path, { method = "GET", body } = {}) {
   }
   return res.status === 204 ? null : res.json();
 }
+
+/* --- On a phone: offline banner and expenses waiting to be sent ----------------
+   When the Mac is asleep or out of reach, the phone shows the last numbers it saw
+   (sw.js keeps them) and new expenses wait here until the Mac is back. Each has
+   an id, so sending one twice never adds it twice. */
+
+const Offline = {
+  since: null,
+  mark(savedAt) { this.since = savedAt || this.since || ""; this.draw(); },
+  clear() { if (this.since !== null) { this.since = null; this.draw(); } },
+  draw() {
+    let el = $("#offline");
+    const waiting = Outbox.items().length;
+    if (this.since === null && !waiting) { el?.remove(); return; }
+    if (!el) {
+      el = document.createElement("div");
+      el.id = "offline";
+      el.className = "fixed left-1/2 -translate-x-1/2 z-40 rounded-full text-xs px-3.5 py-1.5 shadow-lg whitespace-nowrap";
+      // Fixed colours, not theme ones: it must stand out on every theme, light or dark.
+      Object.assign(el.style, { top: "calc(env(safe-area-inset-top) + 64px)", background: "rgba(15,23,42,.92)", color: "#fff" });
+      document.body.append(el);
+    }
+    const at = this.since ? new Date(this.since) : null;
+    const when = at && !isNaN(at) ? ` · as of ${at.toDateString() === new Date().toDateString() ? "" : fmtDate(isoOf(at)) + " "}${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}` : "";
+    el.textContent = [this.since !== null ? `${computer()} not reachable${when}` : "", waiting ? `${waiting} waiting to send` : ""].filter(Boolean).join(" · ");
+  },
+};
+
+const Outbox = {
+  KEY: "budget-outbox",
+  items() { try { return JSON.parse(localStorage.getItem(this.KEY) || "[]"); } catch { return []; } },
+  save(list) { try { localStorage.setItem(this.KEY, JSON.stringify(list)); } catch { /* storage full or blocked */ } Offline.draw(); },
+  add(body) { this.save([...this.items(), body]); },
+  busy: false,
+  async flush() {
+    if (this.busy || state.local || !this.items().length) return;
+    this.busy = true;
+    let sent = 0;
+    try {
+      for (const body of this.items()) {
+        try { await api("/api/expenses", { method: "POST", body, timeout: 10000 }); }
+        catch (err) {
+          if (err instanceof OfflineError || /sign in/i.test(err.message)) break;   // try again later
+          toast(`Couldn't add ${body.merchant}: ${err.message}`, "error");          // the Mac refused it: drop it
+        }
+        this.save(this.items().filter((x) => x.client_id !== body.client_id));
+        sent += 1;
+      }
+    } finally { this.busy = false; }
+    if (sent) { toast(`Sent ${sent === 1 ? "1 expense" : `${sent} expenses`} saved on this phone`); render(); }
+  },
+};
 
 /* --- Desktop app (pywebview) ------------------------------------------- */
 
@@ -415,14 +480,21 @@ function expenseForm({ expense = null, onSaved, merchants = [] }) {
       category_id: f.categoryId,
       category_source: f.categoryId ? (f.userPicked ? "manual" : f.source) : null,
       ...(!isEdit && el.repeat?.checked ? { repeat_monthly: true } : {}),
+      ...(!isEdit ? { client_id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}` } : {}),
     };
     const btn = $("button[type=submit]", el);
     btn.disabled = true;
     try {
       const saved = await api(isEdit ? `/api/expenses/${expense.id}` : "/api/expenses",
-                              { method: isEdit ? "PUT" : "POST", body });
+                              { method: isEdit ? "PUT" : "POST", body, timeout: state.local ? 0 : 10000 });
       onSaved?.(saved);
     } catch (err) {
+      if (err instanceof OfflineError && !isEdit) {
+        // Keep it on the phone; it's sent (once) when the Mac is back.
+        Outbox.add(body);
+        onSaved?.({ ...body, pending: true, amount_cents: Math.round(Number(body.amount) * 100) });
+        return;
+      }
       showError(err.message);
     } finally {
       btn.disabled = false;
@@ -528,6 +600,10 @@ async function viewAdd(root, params) {
     merchants: await frequentMerchants(),
     onSaved: async (saved) => {
       form.clearForm();
+      if (saved.pending) {
+        toast(`Saved ${fmtMoney(Math.abs(saved.amount_cents))} · ${saved.merchant} on this phone. It'll be sent when your ${computer()} is reachable.`);
+        return;
+      }
       await loadCategories();   // keeps the "most used" chips up to date
       toast(`Added ${fmtMoney(Math.abs(saved.amount_cents))} · ${saved.merchant}`, "ok", null, {
         label: "Undo",
@@ -2021,9 +2097,12 @@ function deviceName(ua) {
 async function settingsPhone(el) {
   let st = await api("/api/phone");
   function render() {
+    const ts = st.tailscale || {};
+    const home = st.urls.filter((u) => u.startsWith("http://"));
+    const anywhere = st.urls.find((u) => u.startsWith("https://"));
+    const ext = (url, label) => `<a href="${esc(url)}" data-ext class="underline font-medium">${label}</a>`;
     el.innerHTML = `
-      <p class="text-sm text-slate-500 mb-4">Open Budget in your phone's browser while it's on the same Wi-Fi as this ${computer()} and Budget is open.
-        Phones sign in with a password; they can use everything except these ${computer()}-only settings.</p>
+      <p class="text-sm text-slate-500 mb-4">Use Budget on your phone, at home or anywhere. Phones sign in with a password and can use everything except these ${computer()}-only settings.</p>
       ${st.available ? "" : `<p class="text-sm text-amber-700 mb-3">Not available in browser mode. Open the Budget app (or <code>python3 run.py</code>) to use it.</p>`}
       <form data-phone class="space-y-3" autocomplete="off">
         <div class="grid sm:grid-cols-3 gap-3">
@@ -2034,17 +2113,43 @@ async function settingsPhone(el) {
         </div>
         <label class="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
           <input type="checkbox" name="enabled" class="rounded border-slate-300" ${st.enabled ? "checked" : ""} ${st.available ? "" : "disabled"}>
-          Let phones on this Wi-Fi open Budget
+          Let my phone open Budget
         </label>
+        ${st.mac ? `<label class="flex items-start gap-2 text-sm text-slate-700 cursor-pointer">
+          <input type="checkbox" name="keep_awake" class="rounded border-slate-300 mt-0.5" ${st.keep_awake ? "checked" : ""}>
+          <span>Keep the Mac awake while it's plugged in and Budget is open<span class="block text-xs text-slate-400">So your phone can reach it. A closed lid still puts it to sleep; your phone then saves expenses until it's back.</span></span>
+        </label>` : ""}
         <button class="btn btn-primary">Save</button>
       </form>
       ${st.error ? `<div class="mt-3 rounded-lg bg-red-50 text-red-800 px-3 py-2 text-sm">✕ ${esc(st.error)}</div>` : ""}
       ${st.running ? `
-        <div class="mt-4 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
-          <p class="mb-1">On your phone, open the browser (Safari on iPhone) and go to:</p>
-          ${st.urls.map((u) => `<p class="font-mono text-base font-semibold select-all break-all">${esc(u)}</p>`).join("")}
-          <p class="text-xs text-emerald-800 mt-2">${onPC() ? "If your PC's IP address changes, come back here for the new one." : "The <b>.local</b> address keeps working when your Mac's IP changes."} Then tap Share → <b>Add to Home Screen</b> for an app icon.</p>
-        </div>` : ""}
+        ${anywhere ? `
+          <div class="mt-4 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+            <p class="font-medium">Anywhere: Wi-Fi or 4G</p>
+            <p class="font-mono text-base font-semibold select-all break-all my-1">${esc(anywhere)}</p>
+            <ol class="list-decimal ml-4 space-y-0.5 text-emerald-900/90">
+              <li>On your iPhone, install <b>Tailscale</b> and sign in with the same account as this ${computer()}.</li>
+              <li>Open this address in Safari and sign in with the password above.</li>
+              <li>Tap Share → <b>Add to Home Screen</b>.</li></ol>
+            <p class="text-xs text-emerald-800 mt-2">Budget then opens like an app, even when your ${computer()} is asleep: it shows your last numbers, and expenses you add wait on the phone until the ${computer()} is back.</p>
+          </div>` : ts.pending ? `
+          <p class="mt-4 text-sm text-slate-500">Setting up your anywhere address…</p>` : ts.enable_url ? `
+          <div class="mt-4 rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            <p>${esc(ts.error || "")}</p>
+            <p class="mt-1">${ext(ts.enable_url, "Turn on HTTPS in Tailscale")}, then untick and tick <b>Let my phone open Budget</b> and Save.</p>
+          </div>` : ts.installed && ts.error ? `
+          <div class="mt-4 rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-900">${esc(ts.error)}</div>` : !ts.installed ? `
+          <div class="mt-4 rounded-lg bg-slate-50 px-4 py-3 text-sm text-slate-700">
+            <p class="font-medium text-slate-900">Use it away from home too</p>
+            <p class="mt-1">Install ${ext("https://tailscale.com/download", "Tailscale")} (free) on this ${computer()} and your iPhone, and sign in to both with the same account.
+              Then untick and tick <b>Let my phone open Budget</b> and Save: a private, encrypted address appears here.</p>
+          </div>` : ""}
+        ${home.length ? `
+          <div class="mt-3 rounded-lg bg-slate-50 px-4 py-3 text-sm text-slate-700">
+            <p class="mb-1">${anywhere ? "Or at home, on the same Wi-Fi:" : "At home, on the same Wi-Fi, open the browser (Safari on iPhone) and go to:"}</p>
+            ${home.map((u) => `<p class="font-mono font-semibold select-all break-all">${esc(u)}</p>`).join("")}
+            <p class="text-xs text-slate-500 mt-1">${onPC() ? "If your PC's IP address changes, come back here for the new one." : "The <b>.local</b> address keeps working when your Mac's IP changes."}</p>
+          </div>` : ""}` : ""}
       <div class="mt-4">
         <div class="flex items-baseline justify-between">
           <h3 class="text-sm font-medium text-slate-700">Signed-in devices</h3>
@@ -2055,20 +2160,27 @@ async function settingsPhone(el) {
             <span class="text-xs text-slate-400">last used ${fmtUtc(x.last_seen)}</span></li>`).join("")}</ul>`
         : `<p class="text-xs text-slate-400 mt-1">None.</p>`}
       </div>
-      <p class="text-xs text-slate-400 mt-4">Use this on Wi-Fi you trust, like home. The connection isn't encrypted (it's plain http on your local network),
-        so on shared Wi-Fi such as university or a café, switch it off.</p>`;
+      <p class="text-xs text-slate-400 mt-4">The home Wi-Fi addresses aren't encrypted (plain http), so only use them on Wi-Fi you trust.
+        The Tailscale address is encrypted, and only your own devices can reach it.</p>`;
     const form = $("[data-phone]", el);
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
       const port = Number(form.port.value);
       if (!(port >= 1024 && port <= 65535)) return toast("Port must be between 1024 and 65535", "error");
       try {
-        st = await api("/api/phone", { method: "PUT", body: { enabled: form.enabled.checked, port, password: form.password.value || null } });
+        st = await api("/api/phone", { method: "PUT", body: { enabled: form.enabled.checked, port, password: form.password.value || null,
+                                                              ...(form.keep_awake ? { keep_awake: form.keep_awake.checked } : {}) } });
         render();
         toast(st.error ? "Saved, but phone access couldn't start" : st.running ? "Phone access is on" : "Saved", st.error ? "error" : "ok");
         settingsHooks.refreshSummaries?.();
       } catch (err) { toast(err.message, "error"); }
     });
+    el.querySelectorAll("[data-ext]").forEach((a) => a.addEventListener("click", (e) => {
+      e.preventDefault();
+      if (desktop()?.open_url) desktop().open_url(a.href); else window.open(a.href, "_blank");
+    }));
+    // Tailscale takes a few seconds to publish the address: check back.
+    if (ts.pending && el.isConnected) setTimeout(async () => { if (!el.isConnected) return; st = await api("/api/phone"); render(); }, 2500);
     $("[data-signout-all]", el)?.addEventListener("click", async () => {
       st = await api("/api/phone/sign-out-all", { method: "POST" });
       render();
@@ -2080,10 +2192,11 @@ async function settingsPhone(el) {
 
 function settingsThisPhone(el) {
   el.innerHTML = `
-    <p class="text-sm text-slate-500 mb-3">You're signed in over Wi-Fi. Gmail and phone access settings can only be changed on the ${computer()}.</p>
+    <p class="text-sm text-slate-500 mb-3">You're signed in on this phone. Gmail and phone access settings can only be changed on the ${computer()}.</p>
     <button data-signout class="btn btn-secondary">Sign out</button>`;
   $("[data-signout]", el).addEventListener("click", async () => {
     await api("/api/auth/logout", { method: "POST" });
+    navigator.serviceWorker?.controller?.postMessage("forget");   // drop the numbers saved on this phone
     location.replace("/login");
   });
 }
@@ -2163,4 +2276,17 @@ document.addEventListener("keydown", (e) => {
   render();
   pollEmail();
   setInterval(pollEmail, 20000);
+  if (!state.local) {
+    if ("serviceWorker" in navigator && window.isSecureContext) {
+      // A new version of Budget took over: reload once so it's used straight away.
+      const hadOne = !!navigator.serviceWorker.controller;
+      navigator.serviceWorker.addEventListener("controllerchange", () => { if (hadOne && !document.querySelector("#modal:not(.hidden)")) location.reload(); });
+      navigator.serviceWorker.register("/sw.js").catch(() => {});
+    }
+    Offline.draw();
+    Outbox.flush();
+    addEventListener("online", () => Outbox.flush());
+    document.addEventListener("visibilitychange", () => { if (!document.hidden) Outbox.flush(); });
+    setInterval(() => Outbox.flush(), 30000);
+  }
 })();

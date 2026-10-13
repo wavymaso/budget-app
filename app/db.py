@@ -212,6 +212,9 @@ def _upgrade(conn: sqlite3.Connection) -> None:
     if "recurring_id" not in columns:
         conn.execute("ALTER TABLE expenses ADD COLUMN recurring_id INTEGER REFERENCES recurring(id) ON DELETE SET NULL")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_expenses_recurring ON expenses(recurring_id)")
+    if "client_id" not in columns:   # expenses a phone saved offline and sent later
+        conn.execute("ALTER TABLE expenses ADD COLUMN client_id TEXT")
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_expenses_client ON expenses(client_id) WHERE client_id IS NOT NULL")
 
 
 def _seed(conn: sqlite3.Connection) -> None:

@@ -12,7 +12,7 @@ Your data stays on your computer. There's no account, no cloud and no tracking.
 
 **What it does**
 
-- **On your phone too.** Use the whole app in Safari on your home Wi-Fi, protected by a password.
+- **On your phone too, anywhere.** A home-screen app that works on any Wi-Fi or 4G (with the free Tailscale app), shows your numbers even when the Mac is asleep, and saves expenses until it's back.
 - **Quick entry.** Type the amount and merchant, and the category is suggested as you type. It learns from every correction, and recognises common Spanish merchants (Mercadona, Glovo, Metro, Renfe, Zara…) out of the box.
 - **Budgets.** Weekly and monthly limits overall and per category, with green/amber/red progress bars, "€X left this week" and "€Y per day".
 - **One clear number.** Home shows what's left to spend this month, how much a day that is, and whether you're ahead of or behind plan. Category bars and recent expenses sit underneath, and charts are one tap away.
@@ -303,41 +303,40 @@ Each email is remembered by its Message-ID, so nothing is ever imported twice, e
 
 **Your Shortcut must send from the same Gmail account** you entered in Budget. The iPhone's Mail app must use that account as the sender. Otherwise the emails are refused.
 
-## 8. Using Budget on your phone (Wi-Fi)
+## 8. Budget on your phone, anywhere
 
-While Budget is open on your Mac, you can use the whole app on your phone in Safari, on the same Wi-Fi: Home, adding expenses, transactions, everything.
+Budget works on your iPhone (or Android) as an app on your home screen: Home, adding expenses, transactions, everything. With **Tailscale** it works anywhere, on any Wi-Fi or 4G. Without it, it works on your home Wi-Fi.
 
-### Turn it on (on the Mac)
+Your data stays on your Mac, and the phone talks to it. When the Mac is asleep, closed or out of reach, the phone still opens Budget instantly:
+- it shows your last numbers, with a small "Mac not reachable · as of 14:32" note at the top;
+- expenses you add are saved on the phone ("1 waiting to send") and sent by themselves when the Mac is back;
+- an expense is never added twice, even if sending is interrupted.
 
-1. In Budget, go to **Settings → Use on your phone**.
-2. Choose a password for your phone (at least 6 characters).
-3. Tick **Let phones on this Wi-Fi open Budget** and click **Save**.
-4. The section turns green and shows the address to open, for example:
-   ```
-   http://My-MacBook.local:8000
-   http://192.168.1.23:8000
-   ```
-   The `.local` address keeps working when your Mac's IP address changes. (Windows shows only the IP address; if it changes, the new one appears here.)
+### Set it up (once)
 
-Phone access stays on the next time you open Budget. It starts and stops straight away; no restart needed.
+1. **On the Mac:** install [Tailscale](https://tailscale.com/download) (free for personal use) and sign in. Google, Apple or Microsoft accounts all work.
+2. **On your iPhone:** install **Tailscale** from the App Store and sign in with **the same account**. Leave it connected; it uses almost no battery.
+3. **In Budget on the Mac:** go to **Settings → Use on your phone**, choose a password for your phone (at least 6 characters), tick **Let my phone open Budget** and click **Save**.
+4. The section shows your private address, for example `https://marcels-macbook-air.tail1234.ts.net`. The first time, it may instead ask you to **turn on HTTPS in Tailscale**: click the link, approve, then untick, tick and Save again.
+5. **On your iPhone:** open that address in **Safari**, sign in with the password, then tap **Share → Add to Home Screen**. Open Budget from the new icon from now on. You stay signed in for 30 days.
+
+**Keep the Mac awake while it's plugged in and Budget is open** is on by default, so your phone can reach it. Closing the lid still puts the Mac to sleep; your phone then saves expenses until it's back.
+
+### Home Wi-Fi only (no Tailscale)
+
+Do step 3 above. The section shows addresses such as `http://My-MacBook.local:8000` and `http://192.168.1.23:8000`; open one in Safari on the same Wi-Fi. The `.local` address keeps working when your Mac's IP address changes (Windows shows only the IP address). These addresses are plain `http`, so phones can't keep the offline copy, and you should only use them on Wi-Fi you trust.
 
 If the macOS firewall is on (**System Settings → Network → Firewall**), macOS asks once whether Budget may accept incoming connections. Click **Allow**. On Windows, Windows Defender Firewall asks the same the first time: tick **Private networks** and click **Allow access**.
 
-### On your phone
-
-1. Connect to the same Wi-Fi as the Mac, open **Safari** and type the address.
-2. Sign in with the password. You stay signed in for 30 days.
-3. Optional: tap **Share → Add to Home Screen** to get a Budget icon that opens it like an app.
-
-Budget must be open on your Mac for this to work. The Mac does the work; the phone only shows it.
-
 ### How it's protected
 
-- **Phones must sign in.** The Mac's own window never asks. Five wrong passwords lock that device out for 10 minutes.
+- **Phones must sign in.** The Mac's own window never asks; anything that reaches Budget through the phone connection always does. Five wrong passwords lock that device out for 10 minutes.
 - **Mac-only settings.** A signed-in phone can do everything except change phone access, the password or the Gmail settings. Those only work on the Mac.
 - **Signing out.** **Settings → Use on your phone** lists every signed-in device, with **Sign out all**. Changing the password signs every phone out too. A phone can sign itself out under **Settings → This device**.
 - **What's stored.** The password is saved only as a salted hash, never readable. The phone gets a random sign-in cookie, of which only a hash is stored.
-- **Not encrypted.** The connection is plain `http` on your local network. That's fine at home, but **switch phone access off on shared Wi-Fi** (university, cafés, hotels), where other people on the network could in principle read the traffic.
+- **Private and encrypted with Tailscale.** The `https://….ts.net` address can only be reached by devices signed in to your own Tailscale account, and the connection is encrypted end to end. Everything coming through it is treated as a phone, so the password is always required.
+- **The home Wi-Fi addresses aren't encrypted** (plain `http`). Fine at home, but on shared Wi-Fi (university, cafés, hotels) use the Tailscale address instead.
+- **What stays on the phone.** The interface and your last numbers, so Budget can open offline, plus any expenses waiting to send. Signing out deletes the saved numbers.
 
 For a single run from source, `python3 run.py --lan` turns phone access on at port 8000 without saving the setting. Setting `BUDGET_LAN=1` in `.env` does the same every time Budget opens.
 
@@ -429,7 +428,8 @@ app/
   config.py            paths (Application Support), .env settings
   main.py              web app setup; who may reach what (Mac vs. phones)
   auth.py              phone password, sign-in sessions, guessing protection
-  server.py            background servers: the window's and the Wi-Fi one for phones
+  server.py            background servers: the window's and the one for phones; keep-awake
+  tailscale.py         publishes the phone server at a private https address (Tailscale Serve)
   db.py                database schema, created automatically; moves old data/
   seed.py              default categories + Spanish merchant keywords
   normalize.py         merchant name clean-up
@@ -444,6 +444,7 @@ app/
   routers/             the JSON API (expenses, categories, budgets, dashboard, import/export, preferences, recurring, savings)
 static/                the interface (HTML + JS, login page; Tailwind and Chart.js in static/vendor)
   theme.js             colour themes: every colour is a CSS variable the theme sets
+  sw.js                on phones: opens offline with the last numbers (expenses wait in app.js's outbox)
 windows/
   Budget.spec          PyInstaller recipe for Budget.exe
   installer.iss        Inno Setup script for Budget-Setup.exe (per-user, no admin)

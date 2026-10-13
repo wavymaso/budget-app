@@ -47,8 +47,7 @@ def logout(request: Request, response: Response, db: sqlite3.Connection = Depend
 
 @router.get("/api/auth/me")
 def me(request: Request):
-    host = request.client.host if request.client else None
-    return {"local": auth.is_local(host)}
+    return {"local": auth.request_is_local(request)}
 
 
 # --- settings: only reachable from the Mac itself (see main.local_only) ------------
@@ -57,6 +56,7 @@ class PhoneIn(BaseModel):
     enabled: bool
     port: int = Field(8000, ge=1024, le=65535)
     password: str | None = Field(None, max_length=200)
+    keep_awake: bool | None = None    # keep the Mac awake while plugged in (macOS)
 
 
 def _phone_status(db: sqlite3.Connection) -> dict:
@@ -69,6 +69,9 @@ def _phone_status(db: sqlite3.Connection) -> dict:
         "running": bool(pa and pa.running),
         "error": pa.error if pa else None,
         "urls": pa.urls() if pa else [],
+        "tailscale": pa.tailscale if pa else None,
+        "keep_awake": cfg.get("keep_awake", True),
+        "mac": config.MAC,
         "sessions": auth.list_sessions(db),
         "min_password_length": auth.MIN_PASSWORD_LENGTH,
     }
@@ -88,9 +91,12 @@ def phone_update(body: PhoneIn, db: sqlite3.Connection = Depends(get_db)):
             raise HTTPException(422, str(exc))
     if body.enabled and not auth.has_password(db):
         raise HTTPException(422, "Set a password before turning on phone access")
-    auth.save_phone_settings(db, enabled=body.enabled, port=body.port)
+    changes = {"enabled": body.enabled, "port": body.port}
+    if body.keep_awake is not None:
+        changes["keep_awake"] = body.keep_awake
+    cfg = auth.save_phone_settings(db, **changes)
     if server.phone_access is not None:
-        server.phone_access.apply(body.enabled, body.port)
+        server.phone_access.apply(body.enabled, body.port, keep_awake=cfg.get("keep_awake", True))
     return _phone_status(db)
 
 

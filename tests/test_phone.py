@@ -123,9 +123,9 @@ def test_turning_phone_access_on_and_off(mac, monkeypatch):
     calls = []
 
     class FakePhoneAccess:
-        running, error, port = False, None, None
-        def apply(self, enabled, port):
-            calls.append((enabled, port))
+        running, error, port, tailscale = False, None, None, None
+        def apply(self, enabled, port, keep_awake=True):
+            calls.append((enabled, port, keep_awake))
             self.running, self.port = enabled, port
         def urls(self):
             return [f"http://mac.local:{self.port}"] if self.running else []
@@ -136,14 +136,47 @@ def test_turning_phone_access_on_and_off(mac, monkeypatch):
     assert on["running"] and on["urls"] == ["http://mac.local:8123"] and on["enabled"]
     off = mac.put("/api/phone", json={"enabled": False, "port": 8123}).json()
     assert not off["running"]
-    assert calls == [(False, 8000), (True, 8123), (False, 8123)]
+    assert calls == [(False, 8000, True), (True, 8123, True), (False, 8123, True)]
+    # Keep-awake is a saved choice.
+    mac.put("/api/phone", json={"enabled": True, "port": 8123, "keep_awake": False})
+    assert calls[-1] == (True, 8123, False)
+    assert mac.get("/api/phone").json()["keep_awake"] is False
 
 
 def test_real_phone_server_starts_and_stops(db_path):
     pa = server.PhoneAccess()
-    pa.apply(True, 0)           # port 0 = any free port
+    pa.apply(True, 0, keep_awake=False, tailscale=False)   # port 0 = any free port
     try:
         assert pa.running and pa.port and pa.error is None
     finally:
         pa.stop()
     assert not pa.running
+
+
+def test_everything_through_the_phone_server_must_sign_in(db_path):
+    """Tailscale forwards phones from 127.0.0.1, so the phone server can't trust the address."""
+    import urllib.error
+    import urllib.request
+    pa = server.PhoneAccess()
+    pa.apply(True, 0, keep_awake=False, tailscale=False)
+    try:
+        base = f"http://127.0.0.1:{pa.port}"
+        with pytest.raises(urllib.error.HTTPError) as e:
+            urllib.request.urlopen(f"{base}/api/expenses", timeout=5)
+        assert e.value.code == 401
+        with urllib.request.urlopen(f"{base}/api/auth/me", timeout=5) as r:
+            assert r.read() == b'{"local":false}'
+        for open_path in ("/sw.js", "/manifest.webmanifest", "/login"):
+            with urllib.request.urlopen(f"{base}{open_path}", timeout=5) as r:
+                assert r.status == 200
+    finally:
+        pa.stop()
+
+
+def test_tailscale_address_comes_first(monkeypatch):
+    pa = server.PhoneAccess()
+    monkeypatch.setattr(pa, "_server", type("S", (), {"port": 8000})())
+    pa.tailscale = {"url": "https://mac.tail123.ts.net"}
+    monkeypatch.setattr(server, "local_hostname", lambda: "mac.local")
+    monkeypatch.setattr(server, "lan_ip", lambda: "192.168.1.5")
+    assert pa.urls() == ["https://mac.tail123.ts.net", "http://mac.local:8000", "http://192.168.1.5:8000"]

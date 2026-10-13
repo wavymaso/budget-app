@@ -60,3 +60,13 @@ def test_phones_can_quick_add_without_signing_in(tmp_path, monkeypatch):
         assert phone.get("/api/expenses").status_code == 401     # the rest needs a sign-in
         r = phone.post("/api/expenses/quick", headers=AUTH, json={"amount": "2", "merchant": "Metro"})
         assert r.status_code == 201
+
+
+def test_offline_expense_sent_twice_is_added_once(client):
+    body = {"amount": "4.50", "merchant": "Mercadona", "date": "2026-10-13", "client_id": "lx9k2-abc123"}
+    first = client.post("/api/expenses", json=body)
+    again = client.post("/api/expenses", json=body)
+    assert first.status_code == 201 and again.status_code == 200
+    assert first.json()["id"] == again.json()["id"]
+    assert client.get("/api/expenses", params={"q": "Mercadona"}).json()["count"] == 1
+    assert client.post("/api/expenses", json={**body, "client_id": "bad id!"}).status_code == 422

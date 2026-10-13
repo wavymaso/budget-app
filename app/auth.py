@@ -28,6 +28,13 @@ def is_local(host: str | None) -> bool:
     return (host or "") in LOCAL_CLIENTS
 
 
+def request_is_local(request) -> bool:
+    """The Mac's own window. Not anything that came through the phone server,
+    which marks its requests (Tailscale forwards phones from 127.0.0.1)."""
+    host = request.client.host if request.client else ""
+    return is_local(host) and not request.scope.get("budget_remote")
+
+
 # --- settings ------------------------------------------------------------------
 
 def phone_settings(conn: sqlite3.Connection) -> dict:

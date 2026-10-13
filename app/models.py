@@ -46,6 +46,8 @@ class ExpenseIn(BaseModel):
     category_source: str | None = None
     # Add it again on the same day every month (only when creating an expense).
     repeat_monthly: bool = False
+    # Set by a phone that saved this while offline: sending it again never adds it twice.
+    client_id: str | None = Field(default=None, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
 
     @field_validator("merchant")
     @classmethod
