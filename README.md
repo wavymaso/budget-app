@@ -399,6 +399,23 @@ Add it to your Home Screen, or trigger it from an Apple Pay automation (**Automa
 
 Your Mac must be awake, with Budget open, for the Shortcut to work.
 
+## The iPhone app
+
+`ios/` has Budget as a real iPhone app (SwiftUI, iOS 17 or newer). It keeps all your data **on the phone**, so it works anywhere with no Mac and no internet. Whenever it can reach the Mac (Tailscale on, Budget open), both sync in both directions within seconds: the newer edit wins, and nothing is ever added twice. Home, Add, Transactions, spending limits, monthly bills, categories and themes all match the Mac.
+
+**Install it (free Apple ID):**
+1. Plug the iPhone into the Mac, unlock it and tap **Trust**.
+2. On the iPhone, go to **Settings → Privacy & Security → Developer Mode**, turn it on and restart.
+3. Open `ios/Budget.xcodeproj` in Xcode. Go to **Xcode → Settings → Accounts → +** and add your Apple ID.
+4. Click the **Budget** target, then **Signing & Capabilities**, and set **Team** to *Your Name (Personal Team)*.
+5. Pick your iPhone at the top of the window and press **Run** (▶).
+6. The first time only: on the iPhone, go to **Settings → General → VPN & Device Management**, tap your Apple ID and choose **Trust**.
+7. In the app, open **Settings → Your Mac**. Enter the address from the Mac (**Budget → Settings → Use on your phone**) and the phone password.
+
+With a free Apple ID the app stops opening after 7 days. Your data stays on the phone: just repeat step 5. A paid Apple Developer account ($99/year) makes it last a year.
+
+How sync works is described in `app/sync.py` (the Mac) and `ios/Budget/Sync.swift` (the phone).
+
 ## 9. Back up and restore your data
 
 - **Automatic backups:** once a day, when Budget opens, it saves `backups/budget-auto-YYYY-MM-DD.db` and keeps the last 14. Backups you make yourself are never deleted.
@@ -451,6 +468,7 @@ windows/
   build.ps1            build on a Windows PC from source
 .github/workflows/
   windows.yml          builds and tests on Windows; a v* tag publishes a release
+ios/                   the iPhone app (SwiftUI): Models, Logic (same maths as the Mac), Sync, screens
 macos/
   Budget.spec          PyInstaller recipe
   make_icon.py         draws icon.png and Budget.icns

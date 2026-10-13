@@ -15,3 +15,9 @@ __pycache__/
 build/
 dist/
 app/_build_info.py
+
+# Xcode (iPhone app)
+ios/build/
+xcuserdata/
+*.xcuserstate
+DerivedData/
