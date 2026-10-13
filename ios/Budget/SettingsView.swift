@@ -18,6 +18,7 @@ struct SettingsView: View {
         NavigationStack {
             Form {
                 MacSection()
+                GmailSection()
                 Section("Look") {
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 4), spacing: 10) {
                         ForEach(["auto"] + Theme.all.map(\.id), id: \.self) { id in themeSwatch(id) }
@@ -121,6 +122,62 @@ struct MacSection: View {
                  : "On the Mac: Budget → Settings → Use on your phone shows the address and the password.")
         }
         .onAppear { if address.isEmpty { address = sync.serverURL } }
+    }
+}
+
+/// Reading the Apple Pay emails on this phone too, so it doesn't need the Mac.
+struct GmailSection: View {
+    @EnvironmentObject private var gmail: GmailEngine
+    @Environment(\.theme) private var theme
+    @State private var address = ""
+    @State private var password = ""
+    @State private var busy = false
+    @State private var error: String?
+
+    var body: some View {
+        Section {
+            if gmail.isOn {
+                LabeledContent("Gmail", value: gmail.address)
+                Text(status).font(.footnote).foregroundStyle(statusIsError ? theme.levelColor(.red) : theme.secondary)
+                Button { Task { await gmail.check(force: true) } } label: { Label("Check now", systemImage: "envelope.arrow.triangle.branch") }
+                    .disabled(gmail.state == .checking)
+                Button("Stop checking on this phone", role: .destructive) { gmail.turnOff() }
+            } else {
+                TextField("Gmail address", text: $address)
+                    .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.emailAddress)
+                SecureField("App password (16 letters)", text: $password)
+                if let error { Text(error).font(.footnote).foregroundStyle(theme.levelColor(.red)) }
+                Button {
+                    busy = true; error = nil
+                    Task {
+                        do { try await gmail.turnOn(address: address, password: password); password = "" }
+                        catch { self.error = (error as? GmailError)?.text ?? "Couldn't reach Gmail. Check that the phone is online." }
+                        busy = false
+                    }
+                } label: { if busy { ProgressView() } else { Text("Check Gmail on this phone") } }
+                .disabled(address.isEmpty || password.isEmpty || busy)
+            }
+        } header: {
+            Text("Apple Pay emails")
+        } footer: {
+            Text(gmail.isOn
+                 ? "New payments are added when you open Budget, and now and then in the background. The Mac does the same; each payment is only added once."
+                 : "The same Gmail app password the Mac uses. Only emails from now on are read here; older ones come from the Mac.")
+        }
+        .onAppear { if address.isEmpty { address = gmail.address } }
+    }
+
+    private var statusIsError: Bool { if case .failed = gmail.state { return true } else { return false } }
+
+    private var status: String {
+        switch gmail.state {
+        case .checking: return "Checking…"
+        case .failed(let m): return m
+        case .idle:
+            guard let t = gmail.lastCheck else { return "Not checked yet" }
+            let when = t.formatted(date: Calendar.current.isDateInToday(t) ? .omitted : .abbreviated, time: .shortened)
+            return "Checked \(when)" + (gmail.lastAdded > 0 ? " · \(gmail.lastAdded) added" : "")
+        }
     }
 }
 

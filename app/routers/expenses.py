@@ -71,13 +71,14 @@ def insert_expense(
     category_source: str,
     source: str,
     import_hash: str | None = None,
+    uid: str | None = None,
 ) -> int:
     cur = db.execute(
         """INSERT INTO expenses (amount_cents, merchant_raw, merchant_norm, category_id,
-                                 date, note, source, category_source, import_hash)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                                 date, note, source, category_source, import_hash, uid)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (amount_cents, merchant, normalize_merchant(merchant), category_id,
-         date, note, source, category_source, import_hash),
+         date, note, source, category_source, import_hash, uid),
     )
     return cur.lastrowid
 

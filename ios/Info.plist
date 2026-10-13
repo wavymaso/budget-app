@@ -10,5 +10,14 @@
 	</dict>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Budget syncs with Budget on your Mac over your home Wi-Fi.</string>
+	<!-- Checking Gmail for Apple Pay emails now and then, when iOS allows it. -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>fetch</string>
+	</array>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>com.wavymaso.budget.refresh</string>
+	</array>
 </dict>
 </plist>

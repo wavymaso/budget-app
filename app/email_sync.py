@@ -8,8 +8,12 @@ imported twice, even if Gmail renumbers the label. Outcomes:
                other currency, or looks like an expense you already have)
     accepted / dismissed   what you decided in "Needs review"
     refused    not sent from your own address (kept only as a record)
+
+The iPhone app reads the same emails on its own. An expense from an email gets
+the same uid on both devices (`expense_uid`), so when both add it, sync keeps one.
 """
 import email.utils
+import hashlib
 import logging
 import sqlite3
 import threading
@@ -109,6 +113,11 @@ def _check(conn, result, fetcher, password, use_ai) -> str | None:
     return None
 
 
+def expense_uid(message_id: str) -> str:
+    """The uid of the expense made from this email: the same on the Mac and the iPhone."""
+    return hashlib.sha256(f"email:{message_id}".encode()).hexdigest()[:32]
+
+
 def process_email(conn: sqlite3.Connection, raw: bytes, my_address: str, *, uid: int | None = None,
                   use_ai: bool = True) -> str:
     """Handle one email. Returns imported | review | refused | skipped."""
@@ -127,6 +136,16 @@ def process_email(conn: sqlite3.Connection, raw: bytes, my_address: str, *, uid:
             pass
     record = {"message_id": mid, "uid": uid, "sender": str(msg.get("From", ""))[:200],
               "received_at": received}
+
+    # The iPhone may have got to this email first.
+    euid = expense_uid(mid)
+    on_phone = conn.execute("SELECT id FROM expenses WHERE uid = ?", (euid,)).fetchone()
+    if on_phone:
+        _record(conn, **record, status="imported", reason="added on your iPhone", expense_id=on_phone["id"])
+        return "skipped"
+    if conn.execute("SELECT 1 FROM sync_deleted WHERE tbl = 'expenses' AND key = ?", (euid,)).fetchone():
+        _record(conn, **record, status="dismissed", reason="added and deleted on your iPhone")
+        return "skipped"
 
     problem = gmail.sender_problem(msg, my_address)
     if problem:
@@ -161,11 +180,17 @@ def process_email(conn: sqlite3.Connection, raw: bytes, my_address: str, *, uid:
                 reason=f"looks like an expense you already have ({dup['merchant']}, {dup['reason']})")
         return "review"
 
-    expense_id = insert_expense(
-        conn, amount_cents=tx.amount_cents, merchant=tx.merchant, date=fields["date"], note=None,
-        category_id=category_id, category_source=category_source, source="email",
-        import_hash=f"email:{mid}",
-    )
+    try:
+        expense_id = insert_expense(
+            conn, amount_cents=tx.amount_cents, merchant=tx.merchant, date=fields["date"], note=None,
+            category_id=category_id, category_source=category_source, source="email",
+            import_hash=f"email:{mid}", uid=euid,
+        )
+    except sqlite3.IntegrityError:                    # the iPhone's copy arrived just now
+        row = conn.execute("SELECT id FROM expenses WHERE uid = ?", (euid,)).fetchone()
+        _record(conn, **record, **fields, status="imported", reason="added on your iPhone",
+                expense_id=row["id"] if row else None)
+        return "skipped"
     _record(conn, **record, **fields, status="imported", expense_id=expense_id)
     return "imported"
 

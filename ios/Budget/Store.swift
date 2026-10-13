@@ -44,6 +44,7 @@ import SwiftData
     }
 
     func delete(_ e: Expense) {
+        if e.source == "email" { ForgottenEmails.add(e.uid) }     // so a Gmail check doesn't bring it back
         ctx.insert(Tombstone(table: "expenses", key: e.uid))
         ctx.delete(e)
         save()

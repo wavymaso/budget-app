@@ -3,21 +3,31 @@ import SwiftData
 
 @main
 struct BudgetApp: App {
-    let container: ModelContainer = {
+    let container: ModelContainer
+    let sync: SyncEngine
+    let gmail: GmailEngine
+
+    init() {
         let schema = Schema(allModels)
-        return try! ModelContainer(for: schema, configurations: ModelConfiguration(schema: schema))
-    }()
+        container = try! ModelContainer(for: schema, configurations: ModelConfiguration(schema: schema))
+        sync = SyncEngine(context: container.mainContext)
+        gmail = GmailEngine(context: container.mainContext, sync: sync)
+    }
 
     var body: some Scene {
         WindowGroup {
-            Root(sync: SyncEngine(context: container.mainContext))
+            Root(sync: sync, gmail: gmail)
         }
         .modelContainer(container)
+        .backgroundTask(.appRefresh(GmailEngine.refreshTask)) { [gmail] in
+            await gmail.backgroundRefresh()
+        }
     }
 }
 
 struct Root: View {
-    @StateObject var sync: SyncEngine
+    @ObservedObject var sync: SyncEngine
+    @ObservedObject var gmail: GmailEngine
     @Environment(\.colorScheme) private var scheme
     @Environment(\.scenePhase) private var phase
     @Environment(\.modelContext) private var ctx
@@ -25,6 +35,13 @@ struct Root: View {
     @State private var tab = 0
 
     var theme: Theme { Theme.named(themeID(settings), systemDark: scheme == .dark) }
+
+    /// Get the Mac's changes first (so nothing deleted there comes back), then Gmail, then send what's new.
+    private func refresh() async {
+        await sync.sync()
+        await gmail.check()
+        await sync.sync()
+    }
 
     var body: some View {
         TabView(selection: $tab) {
@@ -35,6 +52,7 @@ struct Root: View {
         }
         .environment(\.theme, theme)
         .environmentObject(sync)
+        .environmentObject(gmail)
         .tint(theme.accent)
         .preferredColorScheme(themeID(settings) == "auto" ? nil : (theme.dark ? .dark : .light))
         .task {
@@ -45,6 +63,9 @@ struct Root: View {
             if let address = args.string(forKey: "connect"), let pw = args.string(forKey: "password") {
                 try? await sync.signIn(address: address, password: pw)
             }
+            if let gpw = args.string(forKey: "gmailPassword"), !gmail.isOn {     // -gmailPassword <app password>
+                try? await gmail.turnOn(address: gmail.address, password: gpw)
+            }
             if let add = args.string(forKey: "addExpense") {
                 let parts = add.split(separator: ":").map(String.init)
                 let s = suggestCategory(parts[0], rules: (try? ctx.fetch(FetchDescriptor<MerchantRule>())) ?? [],
@@ -54,16 +75,21 @@ struct Root: View {
             }
             if let t = args.string(forKey: "tab"), let n = Int(t) { tab = n }
             #endif
-            await sync.sync()
+            await refresh()
         }
         .onChange(of: phase) { _, now in
-            if now == .active { Task { await sync.sync() } }
+            if now == .active { Task { await refresh() } }
+            if now == .background && gmail.isOn { GmailEngine.scheduleRefresh() }
         }
         .task {
-            // While open, check the Mac every minute.
+            // While open, check the Mac every minute and Gmail every few minutes.
+            var minute = 0
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 60_000_000_000)
-                if phase == .active { await sync.sync() }
+                minute += 1
+                guard phase == .active else { continue }
+                await sync.sync()
+                if minute % 3 == 0 { await gmail.check() }
             }
         }
     }

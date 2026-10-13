@@ -169,6 +169,10 @@ import SwiftUI
         clean(sets, \.modifiedAt) { $0.dirty = false }
         tombs.forEach(context.delete)
         if let remap = answer["remap"] as? [String: String] { try applyRemap(remap) }
+        for uid in answer["dropped"] as? [String] ?? [] {    // from an email whose expense you deleted on the Mac
+            ForgottenEmails.add(uid)
+            if let e = try context.fetch(FetchDescriptor<Expense>(predicate: #Predicate { $0.uid == uid })).first { context.delete(e) }
+        }
         try context.save()
     }
 
@@ -294,6 +298,11 @@ import SwiftUI
                 context.insert(AppSetting(key: key, json: json, modifiedAt: r.str("modified_at"), dirty: false))
             }
         }
+        // Which Gmail the Mac reads, so turning it on here only needs the app password.
+        if let g = answer["gmail"] as? [String: Any], !UserDefaults.standard.bool(forKey: "gmailOn") {
+            UserDefaults.standard.set(g["address"] as? String ?? "", forKey: "gmailAddress")
+            UserDefaults.standard.set(g["label"] as? String ?? "Budget", forKey: "gmailLabel")
+        }
         for d in answer["deleted"] as? [[String: Any]] ?? [] {
             try applyDeletion(table: d.str("table"), key: d.str("key"), at: d.str("deleted_at"))
         }
@@ -311,6 +320,7 @@ import SwiftUI
                 context.delete(x)
             }
         case "expenses":
+            ForgottenEmails.add(key)
             if let x = try context.fetch(FetchDescriptor<Expense>(predicate: #Predicate { $0.uid == key })).first, gone(x.dirty, x.modifiedAt) { context.delete(x) }
         case "budgets":
             if let x = try context.fetch(FetchDescriptor<BudgetLimit>(predicate: #Predicate { $0.uid == key })).first, gone(x.dirty, x.modifiedAt) { context.delete(x) }

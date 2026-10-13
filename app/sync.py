@@ -14,7 +14,9 @@ covered: the window, CSV imports, Gmail, monthly bills):
 
 The phone asks for "everything after rev N". When both sides changed the same
 row, the newer edit wins. Bill occurrences get the same uid on both devices
-("rec:<bill>:<date>"), so a bill added by both is only added once.
+("rec:<bill>:<date>"), so a bill added by both is only added once. The same goes
+for expenses from Apple Pay emails, which both devices read on their own (uid made
+from the email's Message-ID, see email_sync.expense_uid).
 """
 from __future__ import annotations
 
@@ -23,6 +25,7 @@ import sqlite3
 from typing import Any
 
 from . import categorizer
+from .db import get_setting
 from .normalize import normalize_merchant
 
 NOW = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')"
@@ -143,7 +146,7 @@ def _out(conn, table: str, r: sqlite3.Row) -> dict:
 
 def changes_since(conn: sqlite3.Connection, since: int) -> dict:
     """Everything that changed on the Mac after `since` (0 = everything)."""
-    out: dict[str, Any] = {"rev": current_rev(conn), "tables": {}, "deleted": []}
+    out: dict[str, Any] = {"rev": current_rev(conn), "tables": {}, "deleted": [], "gmail": _gmail_hint(conn)}
     for table in UID_TABLES + list(KEYED_TABLES):
         sql = f"SELECT * FROM {table} WHERE rev > ?"   # rows from before sync existed have rev 0
         if table == "settings":
@@ -158,6 +161,14 @@ def changes_since(conn: sqlite3.Connection, since: int) -> dict:
     return out
 
 
+def _gmail_hint(conn: sqlite3.Connection) -> dict | None:
+    """Which Gmail address and label the Mac reads, so the phone only needs the app password."""
+    cfg = get_setting(conn, "email") or {}
+    if not cfg.get("address"):
+        return None
+    return {"address": cfg["address"], "label": cfg.get("label") or "Budget"}
+
+
 # --- applying what the phone sends --------------------------------------------------
 
 def _newer(incoming: str | None, existing: str | None) -> bool:
@@ -166,8 +177,10 @@ def _newer(incoming: str | None, existing: str | None) -> bool:
 
 def apply(conn: sqlite3.Connection, changes: dict[str, list[dict]], deleted: list[dict]) -> dict:
     """Apply the phone's changes; the newer edit wins. Returns uids the phone should
-    replace with the Mac's (a category or budget that already existed here)."""
+    replace with the Mac's (a category or budget that already existed here), and
+    expenses it should drop (from an email whose expense was deleted here)."""
     remap: dict[str, str] = {}
+    dropped: list[str] = []
     cat_id = lambda uid: _id_of(conn, "categories", remap.get(uid, uid))   # noqa: E731
 
     for c in changes.get("categories", []):
@@ -203,6 +216,10 @@ def apply(conn: sqlite3.Connection, changes: dict[str, list[dict]], deleted: lis
         source = e.get("category_source") or ("manual" if cid else "none")
         vals = (e["amount_cents"], e["merchant"], normalize_merchant(e["merchant"]), cid, e["date"], e.get("note"),
                 source, _id_of(conn, "recurring", e.get("recurring_uid")), e["modified_at"])
+        if row is None and e.get("source") == "email" and conn.execute(
+                "SELECT 1 FROM sync_deleted WHERE tbl = 'expenses' AND key = ?", (e["uid"],)).fetchone():
+            dropped.append(e["uid"])   # the Mac imported this email too, and you deleted it
+            continue
         if row is None:
             cur = conn.execute(
                 "INSERT INTO expenses (amount_cents, merchant_raw, merchant_norm, category_id, date, note, category_source, "
@@ -213,6 +230,8 @@ def apply(conn: sqlite3.Connection, changes: dict[str, list[dict]], deleted: lis
                 if s.category_id is not None:
                     conn.execute("UPDATE expenses SET category_id = ?, category_source = ? WHERE id = ?",
                                  (s.category_id, s.source, cur.lastrowid))
+            if e.get("source") == "email":
+                _settle_review(conn, e["uid"], cur.lastrowid)
         elif _newer(e["modified_at"], row["modified_at"]):
             conn.execute("UPDATE expenses SET amount_cents = ?, merchant_raw = ?, merchant_norm = ?, category_id = ?, date = ?, "
                          "note = ?, category_source = ?, recurring_id = ?, modified_at = ?, updated_at = datetime('now') WHERE uid = ?",
@@ -279,4 +298,13 @@ def apply(conn: sqlite3.Connection, changes: dict[str, list[dict]], deleted: lis
             conn.execute(f"DELETE FROM {table} WHERE {col} = ?", (key,))
 
     conn.commit()
-    return {"remap": remap}
+    return {"remap": remap, "dropped": dropped}
+
+
+def _settle_review(conn: sqlite3.Connection, uid: str, expense_id: int) -> None:
+    """The phone imported an email the Mac had put in "Needs review": it's handled now."""
+    from .email_sync import expense_uid
+    for r in conn.execute("SELECT id, message_id FROM email_messages WHERE status = 'review'").fetchall():
+        if expense_uid(r["message_id"]) == uid:
+            conn.execute("UPDATE email_messages SET status = 'imported', expense_id = ?, "
+                         "reason = 'added on your iPhone' WHERE id = ?", (expense_id, r["id"]))
