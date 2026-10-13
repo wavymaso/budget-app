@@ -1,7 +1,13 @@
 """Paths and settings.
 
-Your data lives in ~/Library/Application Support/Budget (outside the project and
-the .app), so rebuilding or updating the app never touches it:
+Your data lives outside the project and the app, so rebuilding or updating
+never touches it:
+
+    Mac      ~/Library/Application Support/Budget
+    Windows  %APPDATA%\\Budget   (C:\\Users\\<you>\\AppData\\Roaming\\Budget)
+    Linux    ~/.local/share/Budget
+
+In that folder:
 
     budget.db      the database
     backups/       copies made with "Back up now"
@@ -16,6 +22,9 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 APP_NAME = "Budget"
+WINDOWS = sys.platform == "win32"
+MAC = sys.platform == "darwin"
+COMPUTER = "Mac" if MAC else "PC"   # how the interface refers to this computer
 
 # Source checkout (dev) or the unpacked bundle (inside Budget.app).
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -23,12 +32,28 @@ FROZEN = getattr(sys, "frozen", False)
 RESOURCE_DIR = Path(getattr(sys, "_MEIPASS", BASE_DIR))
 STATIC_DIR = RESOURCE_DIR / "static"
 
-DATA_DIR = Path(
-    os.environ.get("BUDGET_DATA_DIR") or Path.home() / "Library" / "Application Support" / APP_NAME
-).expanduser()
+
+
+def _default_data_dir() -> Path:
+    if WINDOWS:
+        return Path(os.environ.get("APPDATA") or Path.home() / "AppData" / "Roaming") / APP_NAME
+    if MAC:
+        return Path.home() / "Library" / "Application Support" / APP_NAME
+    return Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share") / APP_NAME
+
+
+def _default_log_dir() -> Path:
+    if WINDOWS:
+        return Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local") / APP_NAME / "Logs"
+    if MAC:
+        return Path.home() / "Library" / "Logs" / APP_NAME
+    return _default_data_dir() / "logs"
+
+
+DATA_DIR = Path(os.environ.get("BUDGET_DATA_DIR") or _default_data_dir()).expanduser()
 DB_PATH = DATA_DIR / "budget.db"
 BACKUP_DIR = DATA_DIR / "backups"
-LOG_DIR = Path.home() / "Library" / "Logs" / APP_NAME
+LOG_DIR = _default_log_dir()
 
 
 def _project_dir() -> Path | None:
@@ -46,7 +71,7 @@ PROJECT_DIR = _project_dir()
 # Where the database used to live before it moved to Application Support.
 LEGACY_DATA_DIR = PROJECT_DIR / "data" if PROJECT_DIR else None
 
-# Settings: the Application Support .env, plus the project's .env during development.
+# Settings: the data folder's .env, plus the project's .env during development.
 load_dotenv(DATA_DIR / ".env")
 if PROJECT_DIR and not FROZEN:
     load_dotenv(PROJECT_DIR / ".env")

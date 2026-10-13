@@ -35,7 +35,7 @@ async def access_control(request: Request, call_next):
     if path in OPEN_TO_NETWORK or path.startswith("/static/"):
         return await call_next(request)   # quick-add checks its own token
     if path.startswith(MAC_ONLY_PREFIXES):
-        return JSONResponse({"detail": "This setting can only be changed on the Mac."}, status_code=403)
+        return JSONResponse({"detail": f"This setting can only be changed on the {config.COMPUTER}."}, status_code=403)
     conn = connect()
     try:
         signed_in = auth.valid_session(conn, request.cookies.get(auth.COOKIE))

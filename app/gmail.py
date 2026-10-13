@@ -5,7 +5,8 @@ Each email has the subject BUDGET and a body line like
     2026-10-04T13:22:05+02:00;MERCADONA;12,45 €;EUR
 
 Gmail is opened read-only over IMAP: nothing is ever marked, moved or deleted.
-The app password is kept in the macOS Keychain, never in a file or the database.
+The app password is kept in the macOS Keychain (Windows: Credential Manager), never in
+a file or the database.
 """
 import email
 import email.policy
@@ -15,6 +16,7 @@ import imaplib
 import re
 import socket
 import ssl
+import sys
 from dataclasses import dataclass
 from datetime import date as Date
 from datetime import datetime
@@ -31,9 +33,13 @@ SUBJECT = "BUDGET"
 
 def _keyring():
     import keyring
-    import keyring.backends.macOS
-    # Pick the Keychain explicitly: backend auto-discovery doesn't work inside the .app.
-    keyring.set_keyring(keyring.backends.macOS.Keyring())
+    # Pick the store explicitly: backend auto-discovery doesn't work inside a built app.
+    if sys.platform == "darwin":
+        import keyring.backends.macOS
+        keyring.set_keyring(keyring.backends.macOS.Keyring())
+    elif sys.platform == "win32":
+        import keyring.backends.Windows
+        keyring.set_keyring(keyring.backends.Windows.WinVaultKeyring())
     return keyring
 
 
@@ -198,9 +204,9 @@ def explain(exc: Exception) -> str:
     if "too many" in low or "web login required" in low:
         return "Gmail is temporarily blocking sign-ins for this account. Wait a few minutes, or sign in at gmail.com once, then try again."
     if isinstance(exc, (socket.gaierror, socket.timeout, TimeoutError, ConnectionError)):
-        return "Couldn't reach imap.gmail.com. Check that the Mac is online."
+        return "Couldn't reach imap.gmail.com. Check that this computer is online."
     if isinstance(exc, ssl.SSLError):
-        return f"Secure connection to Gmail failed ({exc.__class__.__name__}). Check the Mac's date and time."
+        return f"Secure connection to Gmail failed ({exc.__class__.__name__}). Check this computer's date and time."
     if isinstance(exc, OSError):
         return f"Network error talking to Gmail: {text}"
     return f"Gmail said: {text}"

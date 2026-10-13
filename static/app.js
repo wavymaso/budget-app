@@ -16,6 +16,12 @@ const state = {
   prefs: {},
 };
 
+/** "Mac" or "PC": the computer Budget runs on (the server says which). */
+const computer = () => state.prefs.computer || "Mac";
+const onPC = () => computer() === "PC";
+const fileBrowser = () => onPC() ? "File Explorer" : "Finder";
+const passwordStore = () => onPC() ? "Windows Credential Manager" : "your Mac's Keychain";
+
 /** Save one or more preferences (theme, hidden notices) and keep a local copy. */
 async function savePrefs(changes) {
   Object.assign(state.prefs, changes);
@@ -694,7 +700,7 @@ function themeSwatch(name) {
 async function settingsAppearance(el) {
   const draw = () => {
     el.innerHTML = `
-      <p class="text-sm text-slate-500 mb-3">Pick the colours you like. Automatic follows your Mac or iPhone's light and dark mode.</p>
+      <p class="text-sm text-slate-500 mb-3">Pick the colours you like. Automatic follows your ${computer()} or phone's light and dark mode.</p>
       <div class="grid grid-cols-4 gap-2">${THEME_ORDER.map(themeSwatch).join("")}</div>`;
   };
   el.addEventListener("click", async (e) => {
@@ -1770,14 +1776,14 @@ async function viewImport(root) {
 async function settingsData(el) {
   el.innerHTML = `
     <p class="text-sm text-slate-500 mb-2">Budget makes a backup by itself once a day when it opens and keeps the last 14.</p>
-    <p class="text-sm text-slate-500 mb-4">Everything is stored on your Mac in
+    <p class="text-sm text-slate-500 mb-4">Everything is stored on your ${computer()} in
       <code data-db-path class="text-xs bg-slate-100 rounded px-1 break-all"></code>.
       Rebuilding or updating the app never touches it.</p>
     <div class="flex flex-wrap gap-2">
       <button data-backup class="btn btn-primary">Back up now</button>
       <a href="/api/export.csv" class="btn btn-secondary">Export all to CSV</a>
       <a href="#/import" class="btn btn-secondary">Import a bank statement</a>
-      <button data-show-folder class="btn btn-ghost hidden">Show in Finder</button>
+      <button data-show-folder class="btn btn-ghost hidden">Show in ${fileBrowser()}</button>
     </div>
     <div data-backups class="mt-4 text-sm"></div>`;
   async function list() {
@@ -1824,7 +1830,7 @@ async function settingsGmail(el) {
   let cfg = await api("/api/email/settings");
   el.innerHTML = `
     <p class="text-sm text-slate-500 mb-4">Adds your Apple Pay payments automatically from the emails your iPhone Shortcut sends
-      (subject <b>BUDGET</b>). Gmail is opened read-only, and the password stays in your Mac's Keychain.</p>
+      (subject <b>BUDGET</b>). Gmail is opened read-only, and the password stays in ${passwordStore()}.</p>
     <form data-gmail class="space-y-3" autocomplete="off">
       <label class="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
         <input type="checkbox" name="enabled" class="rounded border-slate-300" ${cfg.enabled ? "checked" : ""}>
@@ -1869,7 +1875,7 @@ async function settingsGmail(el) {
   form.addEventListener("change", (e) => { if (e.target.name === "enabled") save().then(() => toast("Saved")).catch((err) => show(false, err.message)); });
   $("[data-forget]", el)?.addEventListener("click", async () => {
     await save({ forget_password: true, password: null });
-    toast("Password removed from Keychain");
+    toast("Password removed");
     settingsGmail(el);
   });
   $("[data-test]", el).addEventListener("click", async (e) => {
@@ -2016,8 +2022,8 @@ async function settingsPhone(el) {
   let st = await api("/api/phone");
   function render() {
     el.innerHTML = `
-      <p class="text-sm text-slate-500 mb-4">Open Budget in Safari on your phone while it's on the same Wi-Fi as this Mac and Budget is open.
-        Phones sign in with a password; they can use everything except these Mac-only settings.</p>
+      <p class="text-sm text-slate-500 mb-4">Open Budget in your phone's browser while it's on the same Wi-Fi as this ${computer()} and Budget is open.
+        Phones sign in with a password; they can use everything except these ${computer()}-only settings.</p>
       ${st.available ? "" : `<p class="text-sm text-amber-700 mb-3">Not available in browser mode. Open the Budget app (or <code>python3 run.py</code>) to use it.</p>`}
       <form data-phone class="space-y-3" autocomplete="off">
         <div class="grid sm:grid-cols-3 gap-3">
@@ -2035,9 +2041,9 @@ async function settingsPhone(el) {
       ${st.error ? `<div class="mt-3 rounded-lg bg-red-50 text-red-800 px-3 py-2 text-sm">✕ ${esc(st.error)}</div>` : ""}
       ${st.running ? `
         <div class="mt-4 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
-          <p class="mb-1">On your phone, open Safari and go to:</p>
+          <p class="mb-1">On your phone, open the browser (Safari on iPhone) and go to:</p>
           ${st.urls.map((u) => `<p class="font-mono text-base font-semibold select-all break-all">${esc(u)}</p>`).join("")}
-          <p class="text-xs text-emerald-800 mt-2">The <b>.local</b> address keeps working when your Mac's IP changes. Then tap Share → <b>Add to Home Screen</b> for an app icon.</p>
+          <p class="text-xs text-emerald-800 mt-2">${onPC() ? "If your PC's IP address changes, come back here for the new one." : "The <b>.local</b> address keeps working when your Mac's IP changes."} Then tap Share → <b>Add to Home Screen</b> for an app icon.</p>
         </div>` : ""}
       <div class="mt-4">
         <div class="flex items-baseline justify-between">
@@ -2074,7 +2080,7 @@ async function settingsPhone(el) {
 
 function settingsThisPhone(el) {
   el.innerHTML = `
-    <p class="text-sm text-slate-500 mb-3">You're signed in over Wi-Fi. Gmail and phone access settings can only be changed on the Mac.</p>
+    <p class="text-sm text-slate-500 mb-3">You're signed in over Wi-Fi. Gmail and phone access settings can only be changed on the ${computer()}.</p>
     <button data-signout class="btn btn-secondary">Sign out</button>`;
   $("[data-signout]", el).addEventListener("click", async () => {
     await api("/api/auth/logout", { method: "POST" });

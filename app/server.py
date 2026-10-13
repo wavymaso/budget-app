@@ -1,6 +1,7 @@
 """Run the web app in a background thread (used by the desktop window and phone access)."""
 import socket
 import subprocess
+import sys
 import threading
 import time
 
@@ -9,7 +10,7 @@ import uvicorn
 
 class BackgroundServer:
     def __init__(self, host: str, port: int, name: str = "budget-server"):
-        # Bind first so we know the port (0 = let macOS pick a free one) and so a
+        # Bind first so we know the port (0 = let the system pick a free one) and so a
         # busy port fails here, with a clear OSError, rather than inside the thread.
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -54,6 +55,8 @@ def lan_ip() -> str | None:
 
 def local_hostname() -> str | None:
     """The Mac's Bonjour name, e.g. "Marias-MacBook-Air.local" (stays the same when the IP changes)."""
+    if sys.platform != "darwin":
+        return None   # Windows and Linux: phones use the IP address
     try:
         name = subprocess.run(["scutil", "--get", "LocalHostName"], capture_output=True,
                               text=True, timeout=3).stdout.strip()

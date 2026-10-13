@@ -6,6 +6,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
+from .. import config
 from ..db import get_db, get_setting, set_setting
 
 router = APIRouter(prefix="/api/preferences", tags=["preferences"])
@@ -23,9 +24,14 @@ def _current(db: sqlite3.Connection) -> dict:
     return {**DEFAULTS, **get_setting(db, "preferences", {})}
 
 
+def _out(prefs: dict) -> dict:
+    # "computer" isn't a preference: it lets the page say "Mac" or "PC".
+    return {**prefs, "computer": config.COMPUTER}
+
+
 @router.get("")
 def get_preferences(db: sqlite3.Connection = Depends(get_db)):
-    return _current(db)
+    return _out(_current(db))
 
 
 @router.put("")
@@ -34,4 +40,4 @@ def update_preferences(body: PreferencesIn, db: sqlite3.Connection = Depends(get
     prefs.update(body.model_dump(exclude_none=True))
     set_setting(db, "preferences", prefs)
     db.commit()
-    return prefs
+    return _out(prefs)

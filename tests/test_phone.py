@@ -62,7 +62,7 @@ def test_login_flow(mac, phone):
 
 def test_login_impossible_without_a_password(phone):
     r = phone.post("/api/auth/login", json={"password": ""})
-    assert r.status_code == 403 and "Set one on your Mac" in r.json()["detail"]
+    assert r.status_code == 403 and f"Set one on your {config.COMPUTER}" in r.json()["detail"]
 
 
 def test_guessing_is_slowed_down(mac, phone):

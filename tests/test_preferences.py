@@ -36,3 +36,26 @@ def test_month_summary_and_shortcut_warning_can_be_hidden(client):
 def test_new_themes_are_accepted(client):
     for theme in ("rose", "noir"):
         assert client.put("/api/preferences", json={"theme": theme}).json()["theme"] == theme
+
+
+def test_preferences_say_which_computer_this_is(client, monkeypatch):
+    assert client.get("/api/preferences").json()["computer"] == config.COMPUTER
+    monkeypatch.setattr(config, "COMPUTER", "PC")
+    prefs = client.put("/api/preferences", json={"theme": "noir"}).json()
+    assert prefs["computer"] == "PC"
+    # It's reported, never stored as a preference.
+    from app.db import connect, get_setting
+    conn = connect()
+    try:
+        assert "computer" not in get_setting(conn, "preferences")
+    finally:
+        conn.close()
+
+
+def test_data_folder_on_windows(monkeypatch, tmp_path):
+    monkeypatch.setattr(config, "WINDOWS", True)
+    monkeypatch.setattr(config, "MAC", False)
+    monkeypatch.setenv("APPDATA", str(tmp_path / "Roaming"))
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "Local"))
+    assert config._default_data_dir() == tmp_path / "Roaming" / "Budget"
+    assert config._default_log_dir() == tmp_path / "Local" / "Budget" / "Logs"
