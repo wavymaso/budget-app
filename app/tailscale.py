@@ -105,7 +105,7 @@ def publish(port: int) -> Status:
     if r is not None and r.returncode != 0:
         s.error = f"Tailscale Serve didn't start: {out.strip()[:200]}"
         return s
-    s.url = address()
+    s.url = address(port)   # by port: other apps (Gym) may publish their own address too
     if not s.url:
         s.error = "Tailscale Serve started, but Budget couldn't read the address. See the Tailscale app."
     return s
