@@ -19,7 +19,7 @@ Your data stays on your computer. There's no account, no cloud and no tracking.
 - **Monthly bills.** Mark Spotify, the gym or rent as monthly once, and they're added by themselves every month.
 - **Savings.** What's left of each month's budget goes into savings, with an optional goal like a trip.
 - **Looks after itself.** A backup every day, a short look back at last month, and a heads-up if your iPhone Shortcut goes quiet.
-- **Themes.** Light, Dark, Sand, Ocean, Lavender, Rose and Noir, or Automatic to follow your computer or phone.
+- **Themes.** The screen's colour shows how the month is going: green on plan, amber when spending runs ahead, red when over. Pick the colour for "on plan": Verde, Azul, Mar, Ciruela, Teja, Tinta or Noche (dark), or Automatic to follow your computer or phone.
 - **Imports.** Bank statement CSVs, with column mapping and duplicate detection, and Apple Pay payments emailed by an iPhone Shortcut and read from Gmail.
 - **Optional AI.** With a Claude API key, merchants it doesn't recognise get a suggested category.
 - Euros, weeks start on Monday, dates as DD/MM/YYYY.
