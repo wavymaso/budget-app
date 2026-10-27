@@ -141,6 +141,40 @@ func summarize(_ expenses: [Expense], limits: [BudgetLimit], period: String, cat
     return PeriodSummary(spent: spent, limit: limit, daysLeft: daysLeft(start, end, d))
 }
 
+// MARK: - Campo: the field's colour
+
+/// The budget's state, shown as the field's colour: red when over the monthly budget, amber when
+/// everyday spending runs more than 3% ahead of an even pace, green otherwise. Same rule as the
+/// Mac (static/app.js budgetState).
+enum BudgetState { case green, amber, red }
+
+struct MonthPace {
+    let state: BudgetState?        // nil: no monthly budget
+    let planCents: Int?            // where an even pace would be by today (bills included)
+    let diffCents: Int?            // > 0 under plan, < 0 ahead of plan
+    let everydayCents: Int?        // the budget minus this month's bills
+    let upcomingBillsCents: Int
+}
+
+func monthPace(_ expenses: [Expense], limits: [BudgetLimit], bills: [Bill], extraCents: Int = 0, on now: Date = today()) -> MonthPace {
+    let m = summarize(expenses, limits: limits, period: "month", on: now)
+    let (start, end) = monthBounds(now)
+    let s = iso(start), e = iso(end), t = iso(now)
+    let paid = expenses.filter { $0.recurringUid != nil && $0.date >= s && $0.date <= e }.reduce(0) { $0 + $1.amountCents }
+    let upcoming = bills.filter { $0.nextDate > t && $0.nextDate <= e }.reduce(0) { $0 + $1.amountCents }
+    guard let limit = m.limit, limit > 0 else { return MonthPace(state: nil, planCents: nil, diffCents: nil, everydayCents: nil, upcomingBillsCents: upcoming) }
+    let spent = m.spent + extraCents
+    if spent > limit { return MonthPace(state: .red, planCents: nil, diffCents: nil, everydayCents: nil, upcomingBillsCents: upcoming) }
+    let everyday = limit - paid - upcoming
+    guard everyday > 0 else { return MonthPace(state: .green, planCents: nil, diffCents: nil, everydayCents: nil, upcomingBillsCents: upcoming) }
+    let total = mondayCalendar.dateComponents([.day], from: start, to: end).day! + 1
+    let elapsed = total - daysLeft(start, end, now) + 1
+    let expected = Int((Double(everyday) * Double(elapsed) / Double(total)).rounded())
+    let diff = expected - (spent - paid)
+    let ahead = Double(-diff) >= Double(everyday) * 0.03
+    return MonthPace(state: ahead ? .amber : .green, planCents: paid + expected, diffCents: diff, everydayCents: everyday, upcomingBillsCents: upcoming)
+}
+
 // MARK: - Monthly bills
 
 /// The same bill on the same day gets the same id on the Mac and the phone, so it's only added once.

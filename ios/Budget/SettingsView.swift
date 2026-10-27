@@ -63,22 +63,32 @@ struct SettingsView: View {
         }
     }
 
+    /// A theme as a small field: its colour with the deeper disc, and the app's ground below.
     private func themeSwatch(_ id: String) -> some View {
-        let t = Theme.named(id, systemDark: false)
         let on = themeID(settings) == id
+        func tile(_ t: Theme) -> some View {
+            ZStack(alignment: .bottom) {
+                t.field(.green)
+                Circle().fill(t.fieldDeep(.green)).frame(width: 44, height: 44).offset(x: 18, y: -30)
+                t.background.frame(height: 12).clipShape(UnevenRoundedRectangle(topLeadingRadius: 6, topTrailingRadius: 6))
+            }
+            .clipped()
+        }
         return Button { store.setTheme(id) } label: {
             VStack(spacing: 6) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 10).fill(id == "auto"
-                        ? AnyShapeStyle(LinearGradient(colors: [Theme.all[0].background, Theme.all[1].background], startPoint: .leading, endPoint: .trailing))
-                        : AnyShapeStyle(t.background))
-                    Circle().fill(id == "auto" ? Theme.all[1].accent : t.accent).frame(width: 14, height: 14)
+                HStack(spacing: 0) {
+                    if id == "auto" { tile(Theme.all[0]); tile(Theme.all[6]) } else { tile(Theme.named(id, systemDark: false)) }
                 }
-                .frame(height: 44)
-                .overlay(RoundedRectangle(cornerRadius: 10).stroke(on ? theme.accent : theme.line, lineWidth: on ? 2 : 1))
-                Text(id == "auto" ? "Auto" : t.label).font(.caption2).foregroundStyle(on ? theme.text : theme.secondary)
+                .frame(height: 52)
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(on ? theme.text : .clear, lineWidth: 2).padding(-3))
+                Text(id == "auto" ? "Auto" : Theme.named(id, systemDark: false).label)
+                    .font(.caption2.weight(on ? .bold : .regular)).foregroundStyle(on ? theme.text : theme.secondary)
             }
-        }.buttonStyle(.plain)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(id == "auto" ? "Automatic theme" : "\(Theme.named(id, systemDark: false).label) theme")
+        .accessibilityAddTraits(on ? .isSelected : [])
     }
 }
 

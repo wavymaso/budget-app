@@ -105,5 +105,6 @@ import SwiftData
 func themeID(_ settings: [AppSetting]) -> String {
     guard let s = settings.first(where: { $0.key == "preferences" }),
           let prefs = try? JSONSerialization.jsonObject(with: Data(s.json.utf8)) as? [String: Any] else { return "auto" }
-    return prefs["theme"] as? String ?? "auto"
+    let id = prefs["theme"] as? String ?? "auto"
+    return Theme.old[id] ?? id
 }

@@ -1,13 +1,13 @@
 import SwiftUI
 import SwiftData
 
-/// Budget's themes, the same as on the Mac (static/theme.js). Picking one here
-/// changes the Mac too, and the other way round.
+/// Budget's themes (Campo), the same as on the Mac (static/theme.js). Picking one here changes
+/// the Mac too, and the other way round. A theme is a field colour (its own hue when you're on
+/// plan; amber and red are the same in every theme) and the UI around it.
 struct Theme: Equatable {
     let id: String
     let label: String
     let dark: Bool
-    let serif: Bool
     let background: Color
     let surface: Color
     let accent: Color
@@ -16,39 +16,52 @@ struct Theme: Equatable {
     let secondary: Color
     let faint: Color
     let line: Color
+    let fieldGreen: (Color, Color)        // the field and its deeper disc, by budget state
+    let fieldAmber: (Color, Color)
+    let fieldRed: (Color, Color)
 
-    static func make(_ id: String, _ label: String, dark: Bool, serif: Bool, surface: String, accent: String, onAccent: String,
-                     neutral: [String]) -> Theme {
-        // neutral: 50..950, page background first (dark themes run the other way)
-        Theme(id: id, label: label, dark: dark, serif: serif, background: Color(hex: neutral[0]), surface: Color(hex: surface),
-              accent: Color(hex: accent), onAccent: Color(hex: onAccent), text: Color(hex: neutral[9]),
-              secondary: Color(hex: neutral[5]), faint: Color(hex: neutral[4]), line: Color(hex: neutral[2]))
+    static func == (a: Theme, b: Theme) -> Bool { a.id == b.id }
+
+    private static let lightNeutral = ["f4f4f5", "ececee", "e2e3e6", "cfd1d6", "a0a3ab", "70737b", "53565d", "3f4147", "27292d", "16171a", "0a0b0c"]
+    private static let amber = (Color(hex: "a3600a"), Color(hex: "874f08")), red = (Color(hex: "b4272f"), Color(hex: "901c23"))
+
+    private static func light(_ id: String, _ label: String, ground: String, field: String, deep: String) -> Theme {
+        let n = [ground] + lightNeutral.dropFirst()
+        return Theme(id: id, label: label, dark: false, background: Color(hex: n[0]), surface: .white, accent: Color(hex: field), onAccent: .white,
+                     text: Color(hex: n[9]), secondary: Color(hex: n[5]), faint: Color(hex: n[4]), line: Color(hex: n[2]),
+                     fieldGreen: (Color(hex: field), Color(hex: deep)), fieldAmber: amber, fieldRed: red)
     }
 
     static let all: [Theme] = [
-        make("light", "Light", dark: false, serif: false, surface: "ffffff", accent: "18181b", onAccent: "ffffff",
-             neutral: ["f7f7f8", "f0f0f2", "e4e4e7", "d4d4d8", "a1a1aa", "71717a", "52525b", "3f3f46", "27272a", "18181b", "09090b"]),
-        make("dark", "Dark", dark: true, serif: false, surface: "17191f", accent: "b7c4ff", onAccent: "0d0e12",
-             neutral: ["0d0e12", "20232b", "2b2f39", "3c414d", "697084", "8f96a8", "b1b7c6", "cdd2dd", "e3e6ed", "f3f4f8", "ffffff"]),
-        make("sand", "Sand", dark: false, serif: true, surface: "fffdf8", accent: "9a4a2c", onAccent: "fffaf3",
-             neutral: ["f4eee4", "efe7da", "e4d9c8", "d3c4ae", "a69680", "7a6b58", "5a4e40", "463c31", "2d261f", "1f1a15", "110e0b"]),
-        make("ocean", "Ocean", dark: false, serif: false, surface: "ffffff", accent: "1d5a7d", onAccent: "ffffff",
-             neutral: ["edf2f5", "e3eaef", "d2dde5", "b5c6d2", "8399a8", "5c7282", "425664", "324350", "1f2c36", "121d25", "080f14"]),
-        make("lavender", "Lavender", dark: false, serif: false, surface: "ffffff", accent: "6a4c9c", onAccent: "ffffff",
-             neutral: ["f4f2f8", "edeaf4", "e0dbeb", "cbc4da", "9d94b1", "726a86", "554e66", "413b4f", "2a2634", "1b1822", "0e0c12"]),
-        make("rose", "Rose", dark: false, serif: true, surface: "fffbfa", accent: "8e2c48", onAccent: "fff7f8",
-             neutral: ["f8efee", "f3e6e5", "eadad8", "dbc5c3", "b09897", "84706f", "634f50", "4d3c3d", "322627", "211819", "120c0d"]),
-        make("noir", "Noir", dark: true, serif: true, surface: "121212", accent: "d8b46a", onAccent: "141008",
-             neutral: ["050505", "1c1c1c", "262626", "363636", "5e5e5e", "8a8a8a", "ababab", "c8c8c8", "e0e0e0", "f2f2f2", "ffffff"]),
+        light("verde", "Verde", ground: "f1f4f2", field: "1d6a48", deep: "155238"),
+        light("azul", "Azul", ground: "f1f3f8", field: "1f4fa8", deep: "173d84"),
+        light("mar", "Mar", ground: "eff5f5", field: "0f6f70", deep: "0a5556"),
+        light("ciruela", "Ciruela", ground: "f5f2f5", field: "6a2f6e", deep: "532456"),
+        light("teja", "Teja", ground: "f6f2ef", field: "8a4b2c", deep: "6e3b22"),
+        light("tinta", "Tinta", ground: "f3f3f4", field: "2a2b30", deep: "1a1b1f"),
+        Theme(id: "noche", label: "Noche", dark: true, background: Color(hex: "0d0e10"), surface: Color(hex: "16171b"),
+              accent: Color(hex: "5cc28f"), onAccent: Color(hex: "0d0e10"), text: Color(hex: "f3f4f6"), secondary: Color(hex: "868a93"),
+              faint: Color(hex: "5c6068"), line: Color(hex: "27292e"),
+              fieldGreen: (Color(hex: "15402d"), Color(hex: "0f3021")), fieldAmber: (Color(hex: "6b4109"), Color(hex: "573406")),
+              fieldRed: (Color(hex: "6e1a20"), Color(hex: "581419"))),
     ]
 
+    /// Themes from before the Campo look (Oct 2026) open as their nearest new one.
+    static let old = ["light": "verde", "dark": "noche", "sand": "teja", "ocean": "mar", "lavender": "ciruela", "rose": "ciruela", "noir": "noche"]
+
     static func named(_ id: String, systemDark: Bool) -> Theme {
-        if id == "auto" { return all[systemDark ? 1 : 0] }
+        let id = old[id] ?? id
+        if id == "auto" { return systemDark ? all[6] : all[0] }
         return all.first { $0.id == id } ?? all[0]
     }
 
-    func display(_ size: CGFloat, _ weight: Font.Weight = .semibold) -> Font {
-        .system(size: size, weight: weight, design: serif ? .serif : .rounded)
+    /// The field's colour for a budget state (nil: no monthly budget, the theme's own colour).
+    func field(_ s: BudgetState?) -> Color { (s == .amber ? fieldAmber : s == .red ? fieldRed : fieldGreen).0 }
+    func fieldDeep(_ s: BudgetState?) -> Color { (s == .amber ? fieldAmber : s == .red ? fieldRed : fieldGreen).1 }
+
+    /// Big numbers: a heavy grotesk, tight. (Sizes scale with Dynamic Type where they're used.)
+    func display(_ size: CGFloat, _ weight: Font.Weight = .black) -> Font {
+        .system(size: size, weight: weight, design: .default)
     }
 
     func levelColor(_ l: Level?) -> Color {

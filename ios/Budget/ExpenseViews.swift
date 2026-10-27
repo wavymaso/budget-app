@@ -1,28 +1,93 @@
 import SwiftUI
 import SwiftData
 
-/// Add tab: the expense form, ready to type.
+/// Add tab (Campo): the amount is typed straight onto the field, which shows the month after
+/// this expense and whether its colour would change; the rest of the form sits below.
 struct AddView: View {
     @Binding var tab: Int
     @Environment(\.theme) private var theme
+    @Query(sort: \Expense.date, order: .reverse) private var expenses: [Expense]
+    @Query private var limits: [BudgetLimit]
+    @Query private var bills: [Bill]
+    @State private var amount = ""
     @State private var savedMessage: String?
+    @FocusState private var amountFocused: Bool
+    @ScaledMetric(relativeTo: .largeTitle) private var bigSize: CGFloat = 72
 
     var body: some View {
+        let now = monthPace(expenses, limits: limits, bills: bills)
+        let cents = parseAmount(amount) ?? 0
+        let after = monthPace(expenses, limits: limits, bills: bills, extraCents: cents)
+        let shown = cents > 0 ? after.state : now.state
+        let m = summarize(expenses, limits: limits, period: "month")
         NavigationStack {
-            ExpenseForm(expense: nil) { message in
-                savedMessage = message
-                Task { try? await Task.sleep(nanoseconds: 2_200_000_000); savedMessage = nil }
+            VStack(spacing: 0) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text("New expense").font(.headline.weight(.bold))
+                        HStack(alignment: .top, spacing: 4) {
+                            TextField("", text: $amount, prompt: Text("0,00").foregroundStyle(.white.opacity(0.45)))
+                                .font(.system(size: bigSize, weight: .black)).tracking(-bigSize * 0.04).monospacedDigit()
+                                .keyboardType(.decimalPad).focused($amountFocused).tint(.white)
+                                .fixedSize().accessibilityLabel("Amount in euros")
+                            Text("€").font(.system(size: bigSize * 0.45, weight: .black)).opacity(0.8).padding(.top, bigSize * 0.1)
+                        }
+                        .padding(.top, 10)
+                        Group {
+                            if let limit = m.limit, limit > 0, cents > 0 {
+                                let left = (m.left ?? 0) - cents
+                                if left < 0 {
+                                    Text("After this: **\(money(-left))** over budget")
+                                } else {
+                                    let perDay = m.daysLeft > 0 ? max(0, left - after.upcomingBillsCents) / m.daysLeft : 0
+                                    Text("After this: **\(money(left))** left, about **\(money(perDay))** a day")
+                                }
+                            } else if let left = m.left, left >= 0 {
+                                Text("\(money(left)) left this month")
+                            }
+                        }
+                        .font(.body.weight(.semibold)).monospacedDigit().padding(.top, 6)
+                        if cents > 0, let st = after.state {
+                            let word = st == .green ? "green" : st == .amber ? "amber" : "red"
+                            HStack(spacing: 8) { Circle().fill(.white).frame(width: 8, height: 8); Text(st == now.state ? "Still \(word)" : "Turns \(word)") }
+                                .font(.subheadline.weight(.bold)).padding(.horizontal, 12).padding(.vertical, 7)
+                                .background(.black.opacity(0.18), in: Capsule()).padding(.top, 12)
+                        }
+                    }
+                    .padding(.horizontal, 20).padding(.top, 8).padding(.bottom, 44)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(alignment: .topTrailing) {
+                    Circle().fill(theme.fieldDeep(shown)).frame(width: 520, height: 520).offset(x: 240, y: -330).accessibilityHidden(true)
+                }
+                .background(theme.field(shown))
+                .clipped()
+                .foregroundStyle(.white)
+                .contentShape(Rectangle())
+                .onTapGesture { amountFocused = true }
+
+                ExpenseForm(expense: nil, amountOnField: $amount) { message in
+                    savedMessage = message
+                    amountFocused = true
+                    Task { try? await Task.sleep(nanoseconds: 2_200_000_000); savedMessage = nil }
+                }
+                .clipShape(UnevenRoundedRectangle(topLeadingRadius: 28, topTrailingRadius: 28, style: .continuous))
+                .padding(.top, -28)
             }
-            .navigationTitle("Add expense")
+            .background(alignment: .top) { VStack(spacing: 0) { theme.field(shown).frame(height: 400); theme.background }.ignoresSafeArea() }
+            .toolbarBackground(theme.field(shown), for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
+            .toolbarColorScheme(.dark, for: .navigationBar)
+            .navigationBarTitleDisplayMode(.inline)
+            .animation(.smooth(duration: 0.5), value: shown)
             .overlay(alignment: .bottom) {
                 if let savedMessage {
-                    Text(savedMessage).font(.subheadline.weight(.medium)).foregroundStyle(theme.onAccent)
+                    Text(savedMessage).font(.subheadline.weight(.semibold)).foregroundStyle(theme.background)
                         .padding(.horizontal, 16).padding(.vertical, 10)
-                        .background(theme.accent, in: Capsule()).padding(.bottom, 12)
+                        .background(theme.text, in: Capsule()).padding(.bottom, 12)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
             }
             .animation(.snappy, value: savedMessage)
+            .onAppear { amountFocused = true }
         }
     }
 }
@@ -43,6 +108,8 @@ struct ExpenseSheet: View {
 
 struct ExpenseForm: View {
     let expense: Expense?
+    /// Add: the amount is typed on the field above the form, not in it.
+    var amountOnField: Binding<String>? = nil
     var onSaved: (String) -> Void
 
     @Environment(\.modelContext) private var ctx
@@ -73,9 +140,11 @@ struct ExpenseForm: View {
     var body: some View {
         Form {
             Section {
-                HStack {
-                    TextField("0,00", text: $amount).font(theme.display(40)).keyboardType(.decimalPad).focused($focus, equals: .amount)
-                    Text("€").font(theme.display(28)).foregroundStyle(theme.faint)
+                if amountOnField == nil {
+                    HStack {
+                        TextField("0,00", text: $amount).font(theme.display(40)).keyboardType(.decimalPad).focused($focus, equals: .amount)
+                        Text("€").font(theme.display(28)).foregroundStyle(theme.faint)
+                    }
                 }
                 TextField("Where? e.g. Mercadona", text: $merchant)
                     .focused($focus, equals: .merchant).submitLabel(.done)
@@ -119,7 +188,7 @@ struct ExpenseForm: View {
                 Button(action: save) {
                     Text(expense == nil ? "Add expense" : "Save").font(.headline).frame(maxWidth: .infinity).padding(.vertical, 6)
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.borderedProminent).tint(theme.text).foregroundStyle(theme.background)
                 .listRowInsets(EdgeInsets()).listRowBackground(Color.clear)
                 if let expense {
                     Button("Delete", role: .destructive) { store.delete(expense); onSaved("Deleted") }
@@ -173,14 +242,16 @@ struct ExpenseForm: View {
     }
 
     private func load() {
-        guard let e = expense else { focus = .amount; return }
+        guard let e = expense else { if amountOnField == nil { focus = .amount }; return }
         amount = String(format: "%.2f", Double(abs(e.amountCents)) / 100).replacingOccurrences(of: ".", with: ",")
         merchant = e.merchant; categoryUid = e.categoryUid; categorySource = e.categorySource; userPicked = true
         date = day(e.date); note = e.note ?? ""; refund = e.amountCents < 0
     }
 
     private func save() {
-        guard let cents = parseAmount(amount) else { error = "Enter an amount, like 12,50."; focus = .amount; return }
+        guard let cents = parseAmount(amountOnField?.wrappedValue ?? amount) else {
+            error = "Enter an amount, like 12,50."; if amountOnField == nil { focus = .amount }; return
+        }
         let m = merchant.trimmingCharacters(in: .whitespaces)
         guard !m.isEmpty else { error = "Enter where you spent it."; focus = .merchant; return }
         error = nil
@@ -193,8 +264,8 @@ struct ExpenseForm: View {
             store.addExpense(amountCents: signed, merchant: m, date: iso(date), note: n, categoryUid: categoryUid,
                              categorySource: categorySource, repeatMonthly: repeatMonthly)
             onSaved("Added \(money(cents)) · \(m)")
-            amount = ""; merchant = ""; categoryUid = nil; categorySource = "none"; userPicked = false
-            note = ""; refund = false; repeatMonthly = false; date = today(); focus = .amount
+            amount = ""; amountOnField?.wrappedValue = ""; merchant = ""; categoryUid = nil; categorySource = "none"; userPicked = false
+            note = ""; refund = false; repeatMonthly = false; date = today(); focus = amountOnField == nil ? .amount : nil
         }
     }
 }
