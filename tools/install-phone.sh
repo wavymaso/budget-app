@@ -5,8 +5,13 @@ set -e
 cd "$(dirname "$0")/../ios"
 UDID=${GYM_PHONE:-00008150-001C09C01EC1401C}
 echo "Building…"
-xcodebuild -project Budget.xcodeproj -scheme Budget -configuration Release -destination 'generic/platform=iOS' \
-  -derivedDataPath build -allowProvisioningUpdates build 2>&1 | grep -E "error:|BUILD (SUCCEEDED|FAILED)" | sort -u
+OUT=$(xcodebuild -project Budget.xcodeproj -scheme Budget -configuration Release -destination 'generic/platform=iOS' \
+  -derivedDataPath build -allowProvisioningUpdates build 2>&1 | grep -E "error:|BUILD (SUCCEEDED|FAILED)" | sort -u)
+echo "$OUT"
+if ! grep -q "BUILD SUCCEEDED" <<< "$OUT"; then
+  if grep -q "No Accounts" <<< "$OUT"; then echo "Xcode isn't signed in to your Apple ID: Xcode → Settings → Accounts → + → Apple ID, then run this again."; fi
+  echo "The build failed, so nothing was installed (an older build would have expired signing)."; exit 1
+fi
 APP=build/Build/Products/Release-iphoneos/Budget.app
 for i in 1 2 3; do
   if xcrun devicectl device install app --device "$UDID" "$APP" 2>&1 | grep -q "bundleID: com.wavymaso.budget"; then
