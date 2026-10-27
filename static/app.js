@@ -592,12 +592,19 @@ async function frequentMerchants(n = 6) {
 
 async function viewAdd(root, params) {
   root.innerHTML = `
-    <div class="max-w-lg mx-auto">
-      <h1 class="text-xl font-semibold text-slate-900 mb-4">Add expense</h1>
-      <div class="card p-5" data-form></div>
-    </div>`;
+    <section class="field bleed relative overflow-hidden -mt-5" data-add-field>
+      <div class="field-deep disc w-[30rem] -right-52 -top-60" aria-hidden="true"></div>
+      <div class="relative max-w-lg mx-auto px-4 pt-6 pb-12">
+        <h1 class="text-lg font-bold">New expense</h1>
+        <div data-amount class="amount-field mt-4"></div>
+        <p data-result class="text-base sm:text-[17px] font-semibold mt-3 min-h-[1.5rem] tabular" aria-live="polite"></p>
+        <p data-change class="mt-3 min-h-[2rem]"></p>
+      </div>
+    </section>
+    <div class="sheet bleed"><div class="max-w-lg mx-auto px-4"><div class="card p-5" data-form></div></div></div>`;
+  const [merchants, status] = await Promise.all([frequentMerchants(), api("/api/budgets/status").catch(() => null)]);
   const form = expenseForm({
-    merchants: await frequentMerchants(),
+    merchants,
     onSaved: async (saved) => {
       form.clearForm();
       if (saved.pending) {
@@ -605,16 +612,59 @@ async function viewAdd(root, params) {
         return;
       }
       await loadCategories();   // keeps the "most used" chips up to date
+      Object.assign(st, await api("/api/budgets/status").catch(() => st));
+      refreshState(st);
+      preview();
       toast(`Added ${fmtMoney(Math.abs(saved.amount_cents))} · ${saved.merchant}`, "ok", null, {
         label: "Undo",
-        run: async () => { await api(`/api/expenses/${saved.id}`, { method: "DELETE" }); toast("Removed"); },
+        run: async () => { await api(`/api/expenses/${saved.id}`, { method: "DELETE" }); toast("Removed"); refreshState(); },
       });
     },
   });
   $("[data-form]", root).append(form);
+  // The amount is typed straight onto the field (still part of the form through its form attribute).
+  form.id = form.id || `add-${uid()}`;
+  form.amount.setAttribute("form", form.id);
+  $("[data-amount]", root).append(form.amount.closest("div").parentElement);
+  form.amount.classList.remove("!text-2xl", "font-semibold", "py-3", "pr-10");
+  form.amount.setAttribute("aria-label", "Amount in euros");
+
+  const st = status || null;
+  // The preview colours the whole top band (header included), so it's set on <body>.
+  const field = document.body;
+  /** What the month will look like after this expense, and whether the colour changes. */
+  function preview() {
+    const result = $("[data-result]", root), change = $("[data-change]", root);
+    const amount = parseAmount(form.amount.value);
+    const date = parseDate(form.date.value);
+    const month = st?.month;
+    if (!month || month.overall.limit_cents == null || !(amount > 0) || form.refund.checked || !date || date < month.start || date > month.end) {
+      field.style.removeProperty("--field"); field.style.removeProperty("--field-deep");
+      result.textContent = month && month.overall.limit_cents != null && month.overall.left_cents >= 0
+        ? `${fmtMoney(month.overall.left_cents)} left this month` : "";
+      change.innerHTML = "";
+      return;
+    }
+    const cents = Math.round(amount * 100);
+    const m = month.overall;
+    const after = { ...m, spent_cents: m.spent_cents + cents, left_cents: m.left_cents - cents };
+    const before = budgetState(m, month), next = budgetState(after, month);
+    const upcoming = month.bills?.upcoming_cents || 0;
+    const perDay = month.days_left ? Math.max(0, after.left_cents - upcoming) / month.days_left : 0;
+    result.innerHTML = after.left_cents < 0
+      ? `After this: <b class="font-black">${fmtMoney(-after.left_cents)}</b> over budget`
+      : `After this: <b class="font-black">${fmtMoney(after.left_cents)}</b> left, about <b class="font-black">${fmtMoney(Math.floor(perDay))}</b> a day`;
+    field.style.setProperty("--field", `var(--field-${next})`);
+    field.style.setProperty("--field-deep", `var(--field-${next}-deep)`);
+    change.innerHTML = `<span class="state-pill"><i></i>${next === before ? `Still ${STATE_WORD[next]}` : `Turns ${STATE_WORD[next]}`}</span>`;
+  }
+  form.amount.addEventListener("input", preview);
+  form.date.addEventListener("change", preview);
+  form.refund.addEventListener("change", preview);
   // Coming from a day in the calendar heatmap: start on that date.
   const day = params?.get("date");
   if (day && parseDate(day)) { form.date.value = fmtDate(day); form.date.dispatchEvent(new Event("change")); }
+  preview();
   setTimeout(() => form.amount.focus(), 0);
 }
 
@@ -752,31 +802,27 @@ async function viewTransactions(root, params) {
 
 const settingsHooks = {};   // lets one section refresh another
 
-const THEME_ORDER = ["auto", "light", "dark", "sand", "ocean", "lavender", "rose", "noir"];
-const themeLabel = (name) => name === "auto" ? "Automatic" : Theme.THEMES[name].label;
+const THEME_ORDER = ["auto", "verde", "azul", "mar", "ciruela", "teja", "tinta", "noche"];
+const themeLabel = (name) => name === "auto" ? "Automatic" : Theme.THEMES[Theme.canonical(name)]?.label || "Automatic";
 
+/** A theme as a small field: its colour with the deeper disc, and the app's ground below. */
 function themeSwatch(name) {
-  const card = (t) => `<span class="flex-1 h-full p-1.5" style="background:#${t.neutral[0]}">
-      <span class="block h-full rounded-md p-1.5" style="background:#${t.surface}">
-        <span class="block h-1.5 w-8 rounded-full mb-1" style="background:#${t.neutral[3]}"></span>
-        <span class="block h-1.5 w-5 rounded-full" style="background:#${t.accent}"></span>
-      </span></span>`;
-  const preview = name === "auto"
-    ? card(Theme.THEMES.light) + card(Theme.THEMES.dark)
-    : card(Theme.THEMES[name]);
+  const tile = (t) => `<span class="relative flex-1 h-full overflow-hidden" style="background:#${t.field.green[0]}">
+      <span class="absolute w-16 h-16 rounded-full -right-6 -top-7" style="background:#${t.field.green[1]}"></span>
+      <span class="absolute left-0 right-0 bottom-0 h-5 rounded-t-lg" style="background:#${t.neutral[0]}"></span></span>`;
+  const preview = name === "auto" ? tile(Theme.THEMES.verde) + tile(Theme.THEMES.noche) : tile(Theme.THEMES[name]);
   const on = Theme.choice === name;
   return `<button type="button" data-theme-pick="${name}" aria-pressed="${on}"
-      class="text-left rounded-xl border-2 p-1 transition ${on ? "border-accent" : "border-transparent hover:border-slate-200"}">
-    <span class="flex h-16 rounded-lg overflow-hidden border border-slate-200">${preview}</span>
-    <span class="block text-sm text-center mt-1.5 ${on ? "font-medium text-slate-900" : "text-slate-600"}"
-          style="${Theme.THEMES[name]?.display === "serif" ? "font-family:ui-serif,'New York',Georgia,serif" : ""}">${themeLabel(name)}</span>
+      class="text-left rounded-2xl border-2 p-1 transition ${on ? "border-slate-900" : "border-transparent hover:border-slate-200"}">
+    <span class="flex h-20 rounded-xl overflow-hidden">${preview}</span>
+    <span class="block text-sm text-center mt-1.5 ${on ? "font-bold text-slate-900" : "font-medium text-slate-600"}">${themeLabel(name)}</span>
   </button>`;
 }
 
 async function settingsAppearance(el) {
   const draw = () => {
     el.innerHTML = `
-      <p class="text-sm text-slate-500 mb-3">Pick the colours you like. Automatic follows your ${computer()} or phone's light and dark mode.</p>
+      <p class="text-sm text-slate-500 mb-3">A theme sets the colour when you're on plan; amber and red always mean the same. Automatic follows your ${computer()} or phone: Verde by day, Noche at night.</p>
       <div class="grid grid-cols-4 gap-2">${THEME_ORDER.map(themeSwatch).join("")}</div>`;
   };
   el.addEventListener("click", async (e) => {
@@ -1300,18 +1346,43 @@ const moneyTooltip = (ctx) => ` ${ctx.dataset.label ? ctx.dataset.label + ": " :
 // Axis ticks in whole euros; fractional ticks are left unlabelled.
 const axisMoney = (v) => (Number.isInteger(v / 100) ? `${v / 100} €` : "");
 
-/** One plain sentence on how everyday spending compares with an even pace through
-    the month. Monthly bills are left out: they land on one day and would skew it. */
-function paceLine(s, d) {
-  if (s.limit_cents == null || !d.is_current || s.limit_cents <= 0) return "";
+/** Everyday spending against an even pace through the month. Monthly bills are left out:
+    they land on one day and would skew it. Null when there's no monthly limit. */
+function pace(s, d) {
+  if (s.limit_cents == null || !d.is_current || s.limit_cents <= 0) return null;
   const bills = d.bills || { paid_cents: 0, upcoming_cents: 0 };
   const everydayBudget = s.limit_cents - bills.paid_cents - bills.upcoming_cents;
-  if (everydayBudget <= 0) return "";
+  if (everydayBudget <= 0) return null;
   const elapsed = d.days_total - d.days_left + 1;
   const expected = Math.round(everydayBudget * elapsed / d.days_total);
-  const diff = expected - (s.spent_cents - bills.paid_cents);
-  if (Math.abs(diff) < everydayBudget * 0.03) return "right on plan so far";
-  return diff > 0 ? `${fmtMoney(diff)} less than planned so far` : `${fmtMoney(-diff)} more than planned so far`;
+  // diff > 0: spent less than planned so far; < 0: more.
+  return { diff: expected - (s.spent_cents - bills.paid_cents), everydayBudget, plan: bills.paid_cents + expected };
+}
+
+/** One plain sentence on the pace. */
+function paceLine(s, d) {
+  const p = pace(s, d);
+  if (!p) return "";
+  if (Math.abs(p.diff) < p.everydayBudget * 0.03) return "right on plan so far";
+  return p.diff > 0 ? `${fmtMoney(p.diff)} less than planned so far` : `${fmtMoney(-p.diff)} more than planned so far`;
+}
+
+/** The field's colour: red when over the monthly budget, amber when spending runs ahead of plan
+    (by more than 3%), green otherwise; null without a monthly budget. */
+function budgetState(m, month) {
+  if (m.limit_cents == null || m.limit_cents <= 0) return null;
+  if (m.left_cents < 0) return "red";
+  const p = pace(m, month);
+  return p && -p.diff >= p.everydayBudget * 0.03 ? "amber" : "green";
+}
+const STATE_WORD = { green: "green", amber: "amber", red: "red" };
+
+/** Keep the field (header, mark, phone status bar) in the colour of this month's state. */
+async function refreshState(status) {
+  try {
+    const st = status || await api("/api/budgets/status");
+    Theme.setState(budgetState(st.month.overall, st.month));
+  } catch { /* keep the last colour */ }
 }
 
 function bar(pct, color, { thick = false } = {}) {
@@ -1322,69 +1393,126 @@ function bar(pct, color, { thick = false } = {}) {
 const levelColor = (level, calm = "rgb(var(--accent))") => level === "green" ? calm : LEVELS[level]?.color || calm;
 const limitPct = (s) => s.limit_cents > 0 ? (s.spent_cents / s.limit_cents) * 100 : (s.spent_cents > 0 ? 100 : 0);
 
-/** The big "€ left this month" card, with this week as one line underneath. */
-function heroCard(month, week, sv) {
+/** Money as a big number, the euro sign smaller and raised: "414,59 €". */
+const bigMoney = (cents) => {
+  const t = fmtMoney(cents).replace(/\s?€$/, "");
+  return `${t}<span class="cur">€</span>`;
+};
+
+/** The ring: white fills it as you spend; the dark notch is where the plan says you'd be by today. */
+function ringSvg(m, month) {
+  const R = 72, C = 2 * Math.PI * R;
+  const spent = Math.max(0, Math.min(1, m.spent_cents / m.limit_cents));
+  const p = pace(m, month);
+  const planFrac = p ? Math.max(0, Math.min(1, p.plan / m.limit_cents)) : null;
+  const notch = planFrac == null ? "" :
+    `<line x1="88" y1="4" x2="88" y2="30" stroke="rgb(var(--field-deep))" stroke-width="6" stroke-linecap="round" transform="rotate(${planFrac * 360} 88 88)"/>`;
+  const days = month.days_left;
+  const label = `Spent ${Math.round(spent * 100)}% of the budget${planFrac != null ? `; the plan for today is ${Math.round(planFrac * 100)}%` : ""}. ${plural(days, "day", "days")} to go.`;
+  return `<div class="relative w-28 h-28 sm:w-44 sm:h-44 shrink-0" role="img" aria-label="${label}">
+    <svg viewBox="0 0 176 176" class="w-full h-full block">
+      <circle cx="88" cy="88" r="${R}" fill="none" stroke="rgb(255 255 255 / .22)" stroke-width="22"/>
+      <circle class="ring-spent" cx="88" cy="88" r="${R}" fill="none" stroke="#fff" stroke-width="22" stroke-dasharray="${(spent * C).toFixed(1)} ${C.toFixed(1)}" transform="rotate(-90 88 88)"/>
+      ${notch}
+    </svg>
+    <div class="absolute inset-0 grid place-items-center text-center">
+      <div><b class="display block text-3xl sm:text-5xl leading-none">${days}</b>
+        <span class="block text-[11px] sm:text-[13px] font-semibold on-field mt-1">${days === 1 ? "day to go" : "days to go"}</span></div>
+    </div>
+  </div>`;
+}
+
+/** This week as seven flat tiles: each fills with that day's spending against a day's share. */
+function weekTiles(week, daily, perDayCents) {
+  const byDay = Object.fromEntries((daily || []).map((x) => [x.date, x.cents]));
+  const today = todayISO();
+  const names = ["M", "T", "W", "T", "F", "S", "S"];
+  return `<div class="grid grid-cols-7 gap-1.5 sm:gap-2">${names.map((n, i) => {
+    const day = addDaysISO(week.start, i);
+    const cents = byDay[day];
+    const future = day > today;
+    const frac = future || !cents || !perDayCents ? 0 : Math.min(1, cents / perDayCents);
+    const label = `${dayLong.format(dateObj(day))}: ${future ? "still to come" : cents ? fmtMoney(cents) : "nothing spent"}`;
+    return `<div><div class="week-tile ${day === today ? "today" : ""} ${future ? "future" : ""}" role="img" aria-label="${esc(label)}" title="${esc(label)}">
+        <b style="height:${(frac * 100).toFixed(0)}%"></b></div>
+      <span class="block text-center text-[11px] font-semibold on-field mt-1.5" aria-hidden="true">${n}</span></div>`;
+  }).join("")}</div>`;
+}
+
+/** Home's field: what's left this month (or how far over), the ring, this week as tiles. */
+function fieldHero(month, week, d, sv) {
   const m = month.overall, w = week.overall;
   const name = monthOnly.format(dateObj(month.start));
-  const dayWord = plural(month.days_left, "day", "days");
-  let top;
+  const st = budgetState(m, month);
+  let left;
   if (m.limit_cents == null) {
-    top = `
-      <p class="text-sm text-slate-500">Spent in ${name}</p>
-      <p class="display text-5xl sm:text-6xl font-semibold text-slate-900 mt-1">${fmtMoney(m.spent_cents)}</p>
-      <a href="#/settings?open=budget" class="btn btn-secondary mt-4">Set a monthly budget</a>`;
+    left = `
+      <p class="text-[15px] font-semibold on-field">Spent in ${name}</p>
+      <p class="display whitespace-nowrap text-[clamp(3rem,17vw,4.25rem)] sm:text-[5.5rem] leading-[.95] mt-2">${bigMoney(m.spent_cents)}</p>
+      <a href="#/settings?open=budget" class="btn mt-5 bg-white text-slate-900 hover:bg-white/90" style="color:rgb(var(--field))">Set a monthly budget</a>`;
   } else {
     const over = m.left_cents < 0;
-    const pace = paceLine(m, month);
     const upcoming = month.bills?.upcoming_cents || 0;
     // What you can spend a day once the bills still to come are paid.
     const perDay = month.days_left ? Math.max(0, m.left_cents - upcoming) / month.days_left : 0;
-    top = `
-      <div class="flex items-baseline justify-between gap-2">
-        <p class="text-sm text-slate-500">${over ? `Over budget in ${name}` : `Left to spend in ${name}`}</p>
-        <p class="text-xs text-slate-400">${dayWord} to go</p>
-      </div>
-      <p class="display text-5xl sm:text-6xl font-semibold mt-1 ${over ? "text-red-600" : "text-slate-900"}">${fmtMoney(Math.abs(m.left_cents))}</p>
-      <div class="mt-5">${bar(limitPct(m), levelColor(m.level), { thick: true })}</div>
-      <div class="mt-2.5 flex flex-wrap justify-between gap-x-4 gap-y-1 text-sm text-slate-500">
-        <span>${fmtMoney(m.spent_cents)} of ${fmtMoneyShort(m.limit_cents)}${upcoming ? ` · ${fmtMoneyShort(upcoming)} in bills to come` : ""}</span>
-        <span>${over ? "" : `About <b class="text-slate-900 tabular">${fmtMoney(Math.floor(perDay))}</b> a day`}${pace && !over ? ` · ${pace}` : ""}</span>
-      </div>`;
+    const p = pace(m, month);
+    const pill = over ? `Over: ${fmtMoney(m.spent_cents)} of ${fmtMoneyShort(m.limit_cents)}`
+      : st === "amber" ? `${fmtMoney(-p.diff)} ahead of plan`
+      : p && p.diff >= p.everydayBudget * 0.03 ? `${fmtMoney(p.diff)} under plan` : "On plan";
+    left = `
+      <p class="text-[15px] font-semibold on-field">${over ? `Over budget in ${name} by` : `Left to spend in ${name}`}</p>
+      <p class="display whitespace-nowrap text-[clamp(3rem,17vw,4.25rem)] sm:text-[6rem] leading-[.95] mt-2">${bigMoney(Math.abs(m.left_cents))}</p>
+      <p class="text-base sm:text-[17px] font-medium on-field mt-3">${over
+        ? `${plural(month.days_left, "day", "days")} to go.`
+        : `About <b class="text-white tabular">${fmtMoney(Math.floor(perDay))}</b> a day for ${plural(month.days_left, "day", "days")}${upcoming ? `, after ${fmtMoneyShort(upcoming)} in bills to come` : ""}`}</p>
+      <p class="mt-4"><span class="state-pill tabular"><i></i>${pill}</span></p>`;
   }
-  const weekLine = w.limit_cents == null
-    ? `<span>This week</span><span class="tabular text-slate-700">${fmtMoney(w.spent_cents)} spent</span>`
-    : `<span>This week</span>
-       <span class="flex-1 max-w-[10rem] mx-3">${bar(limitPct(w), levelColor(w.level))}</span>
-       <span class="tabular text-slate-700">${w.left_cents < 0 ? `${fmtMoney(-w.left_cents)} over` : `${fmtMoney(w.left_cents)} left`}</span>`;
-  return `<section class="card hero p-5 sm:p-7">
-    ${top}
-    <a href="#/transactions?date_from=${week.start}&date_to=${week.end}" class="mt-5 pt-4 border-t border-slate-100 flex items-center justify-between text-sm text-slate-500 hover:text-slate-900">${weekLine}</a>
-    ${sv?.enabled ? `<a href="#/settings?open=savings" class="mt-3 flex items-center justify-between text-sm text-slate-500 hover:text-slate-900">
-      <span>Savings</span>
-      ${sv.goal_cents ? `<span class="flex-1 max-w-[10rem] mx-3">${bar(Math.max(0, Math.min(100, sv.total_cents / sv.goal_cents * 100)), "rgb(var(--accent))")}</span>` : ""}
-      <span class="tabular text-slate-700">${fmtMoney(sv.total_cents)}${sv.goal_cents ? ` <span class="text-slate-400">of ${fmtMoneyShort(sv.goal_cents)}</span>` : ""}</span></a>` : ""}
+  const perDayWeek = w.limit_cents ? w.limit_cents / 7 : (m.limit_cents ? m.limit_cents / month.days_total : 0);
+  const weekText = w.limit_cents == null ? `${fmtMoney(w.spent_cents)} spent`
+    : w.left_cents < 0 ? `${fmtMoney(-w.left_cents)} over` : `${fmtMoney(w.left_cents)} left`;
+  const savings = sv?.enabled && (sv.total_cents || sv.goal_cents) ? `<a href="#/settings?open=savings" class="flex items-center justify-between text-sm font-semibold on-field hover:text-white mt-4">
+      <span>Savings${sv.goal_name ? ` · ${esc(sv.goal_name)}` : ""}</span>
+      <span class="tabular text-white">${fmtMoney(sv.total_cents)}${sv.goal_cents ? ` <span class="on-field font-medium">of ${fmtMoneyShort(sv.goal_cents)}</span>` : ""}</span></a>` : "";
+  return `<section class="field bleed relative overflow-hidden -mt-5" data-field>
+    <div class="field-deep disc w-[34rem] sm:w-[44rem] -right-56 sm:-right-40 -top-64 sm:-top-80" aria-hidden="true"></div>
+    <div class="relative max-w-4xl mx-auto px-4 pt-5 sm:pt-8 pb-12 sm:pb-14">
+      <div class="flex flex-col sm:flex-row-reverse sm:items-start sm:justify-between gap-2 sm:gap-6">
+        ${m.limit_cents != null ? `<div class="self-end sm:self-auto -mb-6 sm:mb-0">${ringSvg(m, month)}</div>` : ""}
+        <div class="min-w-0">${left}</div>
+      </div>
+      <a href="#/transactions?date_from=${week.start}&date_to=${week.end}" class="block mt-8 group">
+        <div class="flex justify-between items-baseline text-sm font-semibold on-field group-hover:text-white mb-2">
+          <span>This week</span><span class="tabular text-white">${weekText}</span></div>
+        ${weekTiles(week, d.is_current ? d.daily : [], perDayWeek)}
+      </a>
+      ${savings}
+    </div>
   </section>`;
 }
 
-/** Categories as simple bars: against their limit when they have one. */
+/** Where it went: one flat band (a stripe per category, sized by its share), then the list. */
 function whereItWent(d, txLink) {
   const cats = d.categories.filter((c) => c.spent_cents > 0).sort((a, b) => b.spent_cents - a.spent_cents);
   if (!cats.length) return `<p class="text-sm text-slate-400 py-8 text-center">Nothing spent in ${monthOnly.format(dateObj(d.start))}${d.is_current ? " yet" : ""}.</p>`;
-  const top = cats[0].spent_cents;
+  const total = cats.reduce((a, c) => a + c.spent_cents, 0);
   const SHOW = 6;
+  const flag = `<div class="flag mb-3" role="img" aria-label="${esc(cats.map((c) => `${c.name} ${Math.round(c.spent_cents / total * 100)}%`).join(", "))}">
+    ${cats.map((c) => `<i style="flex:${c.spent_cents};background:${esc(c.color)}" title="${esc(c.name)}: ${fmtMoney(c.spent_cents)}"></i>`).join("")}</div>`;
+  const limitNote = (c) => {
+    if (c.limit_cents == null) return "";
+    const over = c.spent_cents > c.limit_cents;
+    return `<span class="tabular text-xs w-20 text-right ${over ? "text-red-600 font-semibold" : c.level === "amber" ? "text-amber-700" : "text-slate-400"}">${over ? `over ${fmtMoneyShort(c.limit_cents)}` : `of ${fmtMoneyShort(c.limit_cents)}`}</span>`;
+  };
   const row = (c, i) => `
     <li ${i >= SHOW ? "data-extra hidden" : ""}>
-      <a href="${txLink(`&category_id=${c.category_id ?? "none"}`)}" class="block rounded-lg -mx-2 px-2 py-2 hover:bg-slate-50">
-        <div class="flex items-center gap-2 text-sm mb-1.5">
-          <span class="w-2.5 h-2.5 rounded-full shrink-0" style="background:${esc(c.color)}"></span>
-          <span class="flex-1 truncate text-slate-700">${esc(c.name)}</span>
-          <span class="tabular font-medium text-slate-900">${fmtMoney(c.spent_cents)}</span>
-          ${c.limit_cents != null ? `<span class="tabular text-xs text-slate-400 w-16 text-right">of ${fmtMoneyShort(c.limit_cents)}</span>` : ""}
-        </div>
-        ${c.limit_cents != null ? bar(limitPct(c), levelColor(c.level, esc(c.color))) : bar((c.spent_cents / top) * 100, esc(c.color))}
+      <a href="${txLink(`&category_id=${c.category_id ?? "none"}`)}" class="flex items-center gap-3 rounded-lg -mx-2 px-2 py-2 hover:bg-slate-100 text-[15px]">
+        <span class="w-3 h-3 rounded-[4px] shrink-0" style="background:${esc(c.color)}"></span>
+        <span class="flex-1 truncate text-slate-800">${esc(c.name)}</span>
+        <span class="tabular font-semibold text-slate-900">${fmtMoney(c.spent_cents)}</span>
+        ${limitNote(c)}
       </a>
     </li>`;
-  return `<ul>${cats.map(row).join("")}</ul>
+  return `${flag}<ul>${cats.map(row).join("")}</ul>
     ${cats.length > SHOW ? `<button data-show-extra class="link mt-2">Show ${cats.length - SHOW} more</button>` : ""}`;
 }
 
@@ -1444,8 +1572,7 @@ async function monthSummary(sv) {
   return `<section data-summary-card="${key}" class="card p-5 sm:p-6 mb-4">
     <div class="flex items-start gap-3">
       <div class="flex-1">
-        <p class="text-xs font-medium uppercase tracking-wider text-slate-400">Month in review</p>
-        <h2 class="display text-2xl font-semibold text-slate-900 mt-1">${name}</h2>
+        <h2 class="text-xl font-bold text-slate-900">${name}, looking back</h2>
       </div>
       <button data-close-summary class="text-slate-400 hover:text-slate-700 text-2xl leading-none px-1" aria-label="Close">&times;</button>
     </div>
@@ -1577,7 +1704,7 @@ async function viewDashboard(root, params) {
   if (!recent.count && !d.overall.spent_cents) {
     root.innerHTML = `
       <section class="card p-8 text-center max-w-lg mx-auto mt-6">
-        <span class="inline-flex w-12 h-12 rounded-2xl bg-accent text-on-accent items-center justify-center text-2xl mb-4">€</span>
+        <span class="inline-flex w-14 h-14 rounded-full field items-center justify-center text-2xl font-black mb-4" aria-hidden="true">€</span>
         <h1 class="text-xl font-semibold text-slate-900">Welcome to Budget</h1>
         <p class="text-sm text-slate-500 mt-2 mb-6">Add what you spend and see at a glance how much is left this month.</p>
         <div class="flex flex-col sm:flex-row gap-2 justify-center">
@@ -1590,15 +1717,19 @@ async function viewDashboard(root, params) {
   }
 
   const summary = d.is_current ? await monthSummary(sv) : "";
+  refreshState(glance);
+  // The field needs this month's days for the week tiles, whichever month the list shows.
+  const now = d.is_current ? d : await api("/api/dashboard?period=month").catch(() => d);
   root.innerHTML = `
+    ${fieldHero(glance.month, glance.week, now, sv)}
+    <div class="sheet bleed"><div class="max-w-4xl mx-auto px-4">
     ${homeNotices(emailStatus)}
     ${summary}
-    ${heroCard(glance.month, glance.week, sv)}
 
-    <div class="grid lg:grid-cols-2 gap-4 mt-4">
+    <div class="grid lg:grid-cols-2 gap-4">
       <section class="card p-5">
         <div class="flex items-center justify-between mb-2">
-          <h2 class="font-semibold text-slate-900">Where it went</h2>
+          <h2 class="font-bold text-lg text-slate-900">Where it went</h2>
           <div class="flex items-center text-sm text-slate-500">
             <a href="${go(d.prev_date)}" class="px-2 py-0.5 rounded hover:bg-slate-100" aria-label="Previous month">‹</a>
             <span class="tabular">${d.is_current ? monthOnly.format(dateObj(d.start)) : monthName.format(dateObj(d.start))}</span>
@@ -1611,7 +1742,7 @@ async function viewDashboard(root, params) {
 
       <section class="card overflow-hidden">
         <div class="flex items-center justify-between px-5 pt-5 pb-2">
-          <h2 class="font-semibold text-slate-900">Recent</h2>
+          <h2 class="font-bold text-lg text-slate-900">Recent</h2>
           <a href="#/transactions" class="link">See all</a>
         </div>
         <div data-recent class="divide-y divide-slate-100">${recent.items.map((e) => expenseRow(e)).join("")}</div>
@@ -1624,11 +1755,11 @@ async function viewDashboard(root, params) {
     <div data-trends class="${trendsOpen ? "" : "hidden"} grid lg:grid-cols-2 gap-4 mt-2">
       ${heatmapCard(d)}
       <section class="card p-5">
-        <h3 class="font-semibold text-slate-900 mb-3">Month by month</h3>
+        <h3 class="font-bold text-slate-900 mb-3">Month by month</h3>
         <div class="h-52"><canvas data-trend aria-label="Spending per month"></canvas></div>
       </section>
       <section class="card p-5">
-        <h3 class="font-semibold text-slate-900 mb-3">Where you spend most</h3>
+        <h3 class="font-bold text-slate-900 mb-3">Where you spend most</h3>
         ${d.top_merchants.length ? `<ol class="space-y-1">${d.top_merchants.map((m) => `
           <li><a href="${txLink(`&q=${encodeURIComponent(m.merchant)}`)}" class="flex items-center gap-3 rounded-lg -mx-2 px-2 py-1.5 hover:bg-slate-50 text-sm">
             ${categoryAvatar(m.category_name, m.category_color)}
@@ -1637,7 +1768,8 @@ async function viewDashboard(root, params) {
             <span class="tabular font-medium text-slate-900">${fmtMoney(m.cents)}</span></a></li>`).join("")}</ol>`
         : `<p class="text-sm text-slate-400 py-4 text-center">Nothing yet.</p>`}
       </section>
-    </div>`;
+    </div>
+    </div></div>`;
 
   wireExpenseRows($("[data-recent]", root), { find: (fn) => recent.items.find(fn) }, render);
   wireHeatmap($("[data-trends]", root));
@@ -2227,7 +2359,7 @@ function buildNav() {
   const svg = (icon, cls) => `<svg class="${cls}" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24">${icon}</svg>`;
   $("#bottom-nav").innerHTML = NAV.map((n) => n.route === "add"
     ? `<a href="#/add" data-route="add" aria-label="Add expense" class="flex items-center justify-center py-1.5">
-        <span class="w-12 h-12 -mt-5 rounded-full bg-accent text-on-accent shadow-lg inline-flex items-center justify-center">${svg(n.icon, "w-7 h-7")}</span></a>`
+        <span class="w-[3.25rem] h-[3.25rem] -mt-6 rounded-full bg-slate-900 text-slate-50 shadow-[0_8px_18px_-6px_rgb(0_0_0/.45)] inline-flex items-center justify-center">${svg(n.icon, "w-7 h-7")}</span></a>`
     : `<a href="#/${n.route}" data-route="${n.route}" class="bottom-link flex flex-col items-center gap-0.5 py-2">
         ${svg(n.icon, "w-6 h-6")}${n.label}</a>`).join("");
 }
@@ -2243,6 +2375,9 @@ async function render() {
   const token = ++state.renderToken;
   const { route, params } = parseHash();
   $$("[data-route]").forEach((a) => a.classList.toggle("active", a.dataset.route === route));
+  document.body.dataset.route = route;
+  document.body.style.removeProperty("--field"); document.body.style.removeProperty("--field-deep");   // Add's preview
+  if (route !== "home") refreshState();
   closeModal();
   destroyCharts();
   const root = $("#view");
@@ -2270,7 +2405,7 @@ document.addEventListener("keydown", (e) => {
 
 (async function start() {
   try { state.local = (await (await fetch("/api/auth/me")).json()).local; } catch { /* assume local */ }
-  try { state.prefs = await api("/api/preferences"); if (state.prefs.theme !== Theme.choice) Theme.set(state.prefs.theme); } catch { /* keep the cached theme */ }
+  try { state.prefs = await api("/api/preferences"); if (Theme.canonical(state.prefs.theme) !== Theme.choice) Theme.set(state.prefs.theme); } catch { /* keep the cached theme */ }
   buildNav();
   try { await loadCategories(); } catch (e) { toast("Can't reach the server: " + e.message, "error"); }
   render();

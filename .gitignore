@@ -21,3 +21,6 @@ ios/build/
 xcuserdata/
 *.xcuserstate
 DerivedData/
+
+# Design review screenshots (regenerated each pass)
+.impeccable/review/

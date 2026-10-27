@@ -1,5 +1,5 @@
-"""Draw the Budget app icon: macos/Budget.icns for the Mac app and
-static/apple-touch-icon.png for a phone's home screen (needs Pillow + macOS iconutil).
+"""Draw the Budget app icon (Campo): macos/Budget.icns for the Mac app, the web app's icons in
+static/, the iPhone app's icon and windows/Budget.ico (needs Pillow + macOS iconutil).
 
     .venv/bin/python macos/make_icon.py
 """
@@ -14,41 +14,40 @@ HERE = Path(__file__).resolve().parent
 SIZE = 1024
 BODY = 824                      # Apple's icon grid: 824px rounded square on a 1024 canvas
 RADIUS = 185
-TOP, BOTTOM = (51, 65, 85), (15, 23, 42)       # slate-700 -> slate-900
-ACCENT = (52, 211, 153)                          # emerald-400
+FIELD, DEEP = (29, 106, 72), (21, 82, 56)       # Campo: the Verde field and its deeper disc (static/theme.js)
+
+
+def _font(size: int) -> ImageFont.FreeTypeFont:
+    font = ImageFont.truetype("/System/Library/Fonts/SFNS.ttf", size)
+    try:
+        font.set_variation_by_name("Black")
+    except (OSError, ValueError):
+        pass
+    return font
+
+
+def draw_square(px: int = SIZE) -> Image.Image:
+    """The icon as a full square: the field, the deeper disc off the corner, a white disc with the €."""
+    img = Image.new("RGBA", (px, px), FIELD + (255,))
+    d = ImageDraw.Draw(img)
+    k = px / SIZE
+    d.ellipse((900 * k - 560 * k, 80 * k - 560 * k, 900 * k + 560 * k, 80 * k + 560 * k), fill=DEEP)
+    r = 300 * k
+    d.ellipse((px / 2 - r, px / 2 - r, px / 2 + r, px / 2 + r), fill="white")
+    d.text((px / 2, px / 2 + 8 * k), "€", font=_font(round(380 * k)), fill=FIELD, anchor="mm")
+    return img
 
 
 def draw() -> Image.Image:
+    """The Mac icon: the square on Apple's icon grid, rounded, with a soft shadow."""
     img = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
     off = (SIZE - BODY) // 2
-
-    # Soft drop shadow.
     shadow = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
     ImageDraw.Draw(shadow).rounded_rectangle((off, off + 12, off + BODY, off + BODY + 12), RADIUS, fill=(0, 0, 0, 90))
     img.alpha_composite(shadow.filter(ImageFilter.GaussianBlur(18)))
-
-    # Vertical gradient body.
-    grad = Image.new("RGBA", (BODY, BODY))
-    gd = ImageDraw.Draw(grad)
-    for y in range(BODY):
-        t = y / (BODY - 1)
-        gd.line([(0, y), (BODY, y)], fill=tuple(round(a + (b - a) * t) for a, b in zip(TOP, BOTTOM)) + (255,))
     mask = Image.new("L", (BODY, BODY), 0)
     ImageDraw.Draw(mask).rounded_rectangle((0, 0, BODY - 1, BODY - 1), RADIUS, fill=255)
-    img.paste(grad, (off, off), mask)
-
-    d = ImageDraw.Draw(img)
-    # Three rising bars along the bottom: a tiny budget chart.
-    bar_w, gap, base = 70, 32, off + BODY - 130
-    left = SIZE // 2 - (3 * bar_w + 2 * gap) // 2
-    for i, h in enumerate((70, 115, 165)):
-        x = left + i * (bar_w + gap)
-        color = ACCENT if i == 2 else (148, 163, 184)
-        d.rounded_rectangle((x, base - h, x + bar_w, base), 18, fill=color)
-
-    # The euro sign.
-    font = ImageFont.truetype("/System/Library/Fonts/HelveticaNeue.ttc", 380, index=1)
-    d.text((SIZE // 2, off + 250), "€", font=font, fill="white", anchor="mm")
+    img.paste(draw_square(BODY), (off, off), mask)
     return img
 
 
@@ -63,13 +62,17 @@ def main() -> None:
     subprocess.run(["iconutil", "-c", "icns", str(iconset), "-o", str(HERE / "Budget.icns")], check=True)
     shutil.rmtree(iconset.parent)
 
-    # Phones round the corners themselves, so this one is a full square.
-    off = (SIZE - BODY) // 2
-    square = Image.new("RGBA", (BODY, BODY), TOP + (255,))
-    square.alpha_composite(icon.crop((off, off, off + BODY, off + BODY)))
-    touch = HERE.parent / "static" / "apple-touch-icon.png"
-    square.convert("RGB").resize((180, 180), Image.LANCZOS).save(touch, optimize=True)
-    print("wrote", HERE / "icon.png", HERE / "Budget.icns", "and", touch)
+    # Phones, the web app and the iPhone app round the corners themselves: full squares.
+    square = draw_square().convert("RGB")
+    static = HERE.parent / "static"
+    square.resize((180, 180), Image.LANCZOS).save(static / "apple-touch-icon.png", optimize=True)
+    square.resize((192, 192), Image.LANCZOS).save(static / "icon-192.png", optimize=True)
+    square.resize((512, 512), Image.LANCZOS).save(static / "icon-512.png", optimize=True)
+    ios = HERE.parent / "ios" / "Budget" / "Assets.xcassets" / "AppIcon.appiconset" / "icon-1024.png"
+    square.save(ios, optimize=True)
+    # Windows: the rounded icon at the sizes Explorer and the taskbar use.
+    draw().save(HERE.parent / "windows" / "Budget.ico", sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
+    print("wrote", HERE / "icon.png", HERE / "Budget.icns", "the web and iPhone icons, and windows/Budget.ico")
 
 
 if __name__ == "__main__":

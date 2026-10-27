@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Budget: Campo</title>
+<style>
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font:15px/1.45 -apple-system, "SF Pro Text", system-ui, sans-serif; color:#16171a; background:#ececee; padding:36px 32px 60px; }
+  h1 { font:800 30px/1.1 -apple-system, "SF Pro Display", system-ui; letter-spacing:-0.025em; }
+  .lede { color:#55585f; max-width:820px; margin:10px 0 28px; }
+  .grid { display:flex; gap:26px; flex-wrap:wrap; align-items:flex-start; }
+  .cap { font-size:12.5px; color:#6b6e76; margin-top:10px; text-align:center; max-width:250px; }
+  .num { font-variant-numeric: tabular-nums lining-nums; }
+  .ph { width:250px; height:541px; border-radius:38px; overflow:hidden; position:relative; box-shadow:0 0 0 7px #111, 0 16px 34px rgba(0,0,0,.2); }
+  .ph > .s { width:390px; height:844px; transform:scale(.641); transform-origin:0 0; position:absolute; inset:0 auto auto 0; overflow:hidden; }
+
+  /* Field colours by state (theme "Verde"); the shade below the field is the same hue, darker */
+  .s { --f:#1d6a48; --d:#155238; color:#fff; background:var(--f); font-family:-apple-system, "SF Pro Display", system-ui; }
+  .s.amber { --f:#c77a12; --d:#a5630b; }
+  .s.red { --f:#b4272f; --d:#901c23; }
+  .sb { height:54px; display:flex; justify-content:space-between; align-items:flex-end; padding:0 34px 8px 40px; font:600 16px/1 -apple-system, system-ui; }
+
+  /* the big flat disc: a darker shade bleeding off the corner */
+  .disc { position:absolute; width:560px; height:560px; border-radius:50%; background:var(--d); right:-250px; top:-170px; }
+  .mark { position:absolute; left:24px; top:66px; width:38px; height:38px; border-radius:50%; background:#fff; color:var(--f); display:grid; place-items:center; font:900 19px/1 -apple-system, system-ui; }
+  .month { position:absolute; left:72px; top:75px; font:700 17px/1 -apple-system, system-ui; }
+
+  /* the ring: spend (white, thick) against the month (track); today = dark notch */
+  .ring { position:absolute; right:26px; top:112px; width:176px; height:176px; }
+  .ring svg { width:100%; height:100%; display:block; }
+  .ringin { position:absolute; inset:0; display:grid; place-items:center; text-align:center; }
+  .ringin b { display:block; font:900 44px/1 -apple-system, "SF Pro Display", system-ui; letter-spacing:-0.03em; }
+  .ringin span { font:600 13px/1.2 -apple-system, system-ui; opacity:.85; }
+
+  .lab { position:absolute; left:24px; top:318px; font:600 17px/1.2 -apple-system, system-ui; opacity:.88; }
+  .big { position:absolute; left:20px; top:342px; font:900 100px/1 -apple-system, "SF Pro Display", system-ui; letter-spacing:-0.055em; }
+  .big small { font-size:52px; letter-spacing:-0.02em; vertical-align:34px; margin-left:4px; }
+  .sub { position:absolute; left:24px; top:452px; font:500 17px/1.35 -apple-system, system-ui; opacity:.92; }
+  .state { position:absolute; left:24px; top:484px; display:inline-flex; align-items:center; gap:8px; padding:7px 12px; border-radius:18px; background:rgba(0,0,0,.16); font:700 14px/1 -apple-system, system-ui; }
+  .state i { width:8px; height:8px; border-radius:50%; background:#fff; display:block; }
+
+  /* this week: seven flat tiles */
+  .week { position:absolute; left:24px; right:24px; top:532px; display:grid; grid-template-columns:repeat(7,1fr); gap:6px; }
+  .week div { height:38px; border-radius:6px; background:rgba(255,255,255,.18); position:relative; }
+  .week div.p { background:#fff; }
+  .week div.t { background:transparent; box-shadow: inset 0 0 0 3px #fff; }
+  .week span { position:absolute; bottom:-18px; left:0; right:0; text-align:center; font:600 11px/1 -apple-system, system-ui; opacity:.8; }
+  .weekL { position:absolute; right:24px; top:508px; font:600 13px/1 -apple-system, system-ui; opacity:.88; }
+
+  /* the white sheet */
+  .card { position:absolute; left:0; right:0; top:612px; bottom:0; background:#fff; color:#141518; border-radius:28px 28px 0 0; padding:20px 22px; }
+  .card h3 { font:800 19px/1 -apple-system, system-ui; margin-bottom:12px; display:flex; justify-content:space-between; }
+  .card h3 small { font:600 14px/1 -apple-system, system-ui; color:#8a8d95; }
+  .flag { display:flex; height:22px; border-radius:6px; overflow:hidden; gap:3px; margin-bottom:12px; }
+  .flag i { display:block; }
+  .cr { display:flex; justify-content:space-between; padding:7px 0; font-size:16px; }
+  .cr span { display:flex; align-items:center; gap:10px; } .cr i { width:12px; height:12px; border-radius:3px; display:block; }
+  .cr b { font-weight:650; }
+  .cr em { font-style:normal; color:#9a9da5; font-size:13px; margin-left:6px; }
+  .tabs { position:absolute; left:0; right:0; bottom:0; height:84px; display:flex; justify-content:space-around; padding-top:10px; font:600 11px/1 -apple-system, system-ui; background:rgba(255,255,255,.96); border-top:1px solid #eceef1; color:#8a8d95; }
+  .tabs span { display:flex; flex-direction:column; align-items:center; gap:5px; }
+  .tabs i { width:26px; height:26px; border-radius:50%; background:#e7e8ec; display:block; }
+  .tabs .on { color:var(--f); } .tabs .on i { background:var(--f); }
+  .fab { position:absolute; right:20px; bottom:100px; width:62px; height:62px; border-radius:50%; background:#141518; color:#fff; display:grid; place-items:center; font:300 34px/1 -apple-system, system-ui; box-shadow:0 10px 22px rgba(0,0,0,.25); }
+
+  /* add: the field shows the result as you type */
+  .addTop { position:absolute; left:24px; top:70px; right:24px; display:flex; justify-content:space-between; font:600 17px/1 -apple-system, system-ui; }
+  .addTop b { opacity:.9; }
+  .typed { position:absolute; left:20px; top:150px; font:900 104px/1 -apple-system, "SF Pro Display", system-ui; letter-spacing:-0.055em; }
+  .typed small { font-size:54px; vertical-align:36px; margin-left:4px; }
+  .caret { display:inline-block; width:5px; height:86px; background:#fff; vertical-align:-6px; margin-left:4px; border-radius:2px; opacity:.85; }
+  .result { position:absolute; left:24px; top:276px; right:24px; font:600 19px/1.4 -apple-system, system-ui; }
+  .result b { font-weight:900; }
+  .chg { position:absolute; left:24px; top:344px; display:flex; align-items:center; gap:10px; font:700 14px/1 -apple-system, system-ui; }
+  .chg i { width:26px; height:26px; border-radius:50%; display:block; border:3px solid #fff; }
+  .key { position:absolute; left:0; right:0; bottom:0; height:420px; background:#fff; color:#141518; border-radius:28px 28px 0 0; padding:16px 18px; }
+  .merch { display:flex; gap:8px; flex-wrap:wrap; }
+  .merch span { padding:9px 13px; border-radius:20px; background:#f1f2f5; font-size:15px; font-weight:600; }
+  .merch span.sel { background:#141518; color:#fff; }
+  .cats { display:flex; gap:8px; margin:10px 0 2px; }
+  .cats span { display:flex; align-items:center; gap:7px; padding:8px 12px 8px 9px; border-radius:20px; background:#f1f2f5; font-size:14.5px; font-weight:600; }
+  .cats span i { width:11px; height:11px; border-radius:3px; display:block; }
+  .cats span.sel { box-shadow: inset 0 0 0 2.5px #141518; background:#fff; }
+  .keys { display:grid; grid-template-columns:repeat(3,1fr); gap:7px; margin-top:12px; }
+  .keys b { height:48px; border-radius:12px; background:#f4f5f7; display:grid; place-items:center; font:600 24px/1 -apple-system, system-ui; }
+  .save { margin-top:10px; height:52px; border-radius:14px; background:var(--f); color:#fff; display:grid; place-items:center; font:800 17px/1 -apple-system, system-ui; }
+
+  /* desktop window */
+  .win { width:980px; height:612px; border-radius:14px; overflow:hidden; box-shadow:0 20px 50px rgba(0,0,0,.22); display:grid; grid-template-columns: 420px 1fr; position:relative; }
+  .win .s { position:relative; height:100%; overflow:hidden; }
+  .win .disc { width:520px; height:520px; right:-260px; top:-210px; }
+  .tl { position:absolute; left:16px; top:14px; display:flex; gap:8px; } .tl i { width:12px; height:12px; border-radius:50%; display:block; background:rgba(255,255,255,.45); }
+  .win .mark { top:48px; left:32px; } .win .month { top:57px; left:80px; }
+  .win .ring { top:104px; right:auto; left:32px; width:150px; height:150px; }
+  .win .ringin b { font-size:38px; }
+  .win .lab { top:288px; left:32px; } .win .big { top:312px; left:28px; font-size:92px; }
+  .win .big small { font-size:48px; vertical-align:30px; }
+  .win .sub { top:416px; left:32px; } .win .state { top:450px; left:32px; }
+  .win .week { left:32px; right:32px; top:526px; } .win .weekL { top:502px; left:32px; right:auto; }
+  .pane { background:#fff; color:#141518; padding:22px 30px; }
+  .nav { display:flex; align-items:center; gap:6px; margin-bottom:22px; }
+  .nav a { padding:8px 14px; border-radius:10px; font:600 14.5px/1 -apple-system, system-ui; color:#5b5e66; }
+  .nav a.on { background:#f1f2f5; color:#141518; }
+  .nav .add { margin-left:auto; background:#141518; color:#fff; padding:10px 16px; border-radius:12px; font:700 14.5px/1 -apple-system, system-ui; }
+  .two { display:grid; grid-template-columns: 1.15fr 1fr; gap:26px; }
+  .pane h3 { font:800 18px/1 -apple-system, system-ui; margin-bottom:12px; display:flex; justify-content:space-between; }
+  .pane h3 small { font:600 13px/1 -apple-system, system-ui; color:#8a8d95; }
+  .rr { display:flex; justify-content:space-between; padding:9px 0; border-bottom:1px solid #f0f1f4; font-size:15px; }
+  .rr small { display:block; color:#8a8d95; font-size:12.5px; }
+  .rr b { font-weight:650; }
+  .themes { display:flex; gap:12px; margin-top:6px; flex-wrap:wrap; }
+  .th { text-align:center; font-size:12.5px; color:#55585f; }
+  .th div { width:74px; height:96px; border-radius:14px; position:relative; overflow:hidden; margin-bottom:6px; }
+  .th div::after { content:""; position:absolute; left:0; right:0; bottom:0; height:34px; background:#fff; border-radius:10px 10px 0 0; }
+  .th div.dk::after { background:#1c1d21; }
+  .th div i { position:absolute; width:90px; height:90px; border-radius:50%; right:-40px; top:-34px; display:block; }
+  section { margin-bottom:34px; }
+  h2 { font:800 20px/1 -apple-system, system-ui; margin-bottom:14px; }
+</style>
+</head>
+<body>
+<h1>Campo, with more character</h1>
+<p class="lede">The whole field is your budget's state: green on plan, amber when spending runs ahead, red when over. Three things make it Budget's own: a big ring (white fills it as you spend, a dark notch marks today, so the gap between the two is how far ahead or behind you are), this week as seven flat tiles, and where your money went as one flat striped band. The field changes colour, and the numbers roll, the moment you save an expense. Sample numbers from your October screenshot.</p>
+
+<section>
+<h2>iPhone</h2>
+<div class="grid">
+
+  <!-- Glance, green -->
+  <div><div class="ph"><div class="s">
+    <div class="sb"><span>9:41</span><span>●●●</span></div>
+    <div class="disc"></div>
+    <div class="mark">€</div><div class="month">October</div>
+    <div class="ring"><svg viewBox="0 0 176 176">
+      <circle cx="88" cy="88" r="72" fill="none" stroke="rgba(255,255,255,.22)" stroke-width="22"/>
+      <circle cx="88" cy="88" r="72" fill="none" stroke="#fff" stroke-width="22" stroke-dasharray="85 452" transform="rotate(-90 88 88)"/>
+      <line x1="88" y1="2" x2="88" y2="30" stroke="#0c2e1f" stroke-width="5" stroke-linecap="round" transform="rotate(70 88 88)"/>
+    </svg><div class="ringin"><div><b class="num">6</b><span>of 31 days</span></div></div></div>
+    <div class="lab">Left to spend</div>
+    <div class="big num">488<small>€</small></div>
+    <div class="sub num">About 19,52 € a day for 25 days</div>
+    <div class="state"><i></i>On plan</div>
+    <div class="weekL num">This week · 92,10 € left</div>
+    <div class="week"><div class="p"><span>M</span></div><div class="t"><span>T</span></div><div><span>W</span></div><div><span>T</span></div><div><span>F</span></div><div><span>S</span></div><div><span>S</span></div></div>
+    <div class="card">
+      <h3>Where it went <small class="num">112 € of 600 €</small></h3>
+      <div class="flag"><i style="flex:62;background:#2f6fd1"></i><i style="flex:25;background:#e04f4f"></i><i style="flex:19;background:#d7609a"></i><i style="flex:7;background:#7d5bd0"></i></div>
+      <div class="cr"><span><i style="background:#2f6fd1"></i>Groceries</span><b class="num">62,40 €<em>of 180</em></b></div>
+    </div>
+    <div class="fab">+</div>
+    <div class="tabs"><span class="on"><i></i>Home</span><span><i></i>Expenses</span><span><i></i>Settings</span></div>
+  </div></div><div class="cap">Glance, on plan (an earlier day, for the green)</div></div>
+
+  <!-- Glance, amber: real October numbers -->
+  <div><div class="ph"><div class="s amber">
+    <div class="sb"><span>9:41</span><span>●●●</span></div>
+    <div class="disc"></div>
+    <div class="mark">€</div><div class="month">October</div>
+    <div class="ring"><svg viewBox="0 0 176 176">
+      <circle cx="88" cy="88" r="72" fill="none" stroke="rgba(255,255,255,.22)" stroke-width="22"/>
+      <circle cx="88" cy="88" r="72" fill="none" stroke="#fff" stroke-width="22" stroke-dasharray="140 452" transform="rotate(-90 88 88)"/>
+      <line x1="88" y1="2" x2="88" y2="30" stroke="#5a3404" stroke-width="5" stroke-linecap="round" transform="rotate(70 88 88)"/>
+    </svg><div class="ringin"><div><b class="num">6</b><span>of 31 days</span></div></div></div>
+    <div class="lab">Left to spend</div>
+    <div class="big num">414,59<small>€</small></div>
+    <div class="sub num">About 15,18 € a day for 25 days</div>
+    <div class="state"><i></i>29,97 € ahead of plan</div>
+    <div class="weekL num">This week · 69,32 € left</div>
+    <div class="week"><div class="p"><span>M</span></div><div class="t"><span>T</span></div><div><span>W</span></div><div><span>T</span></div><div><span>F</span></div><div><span>S</span></div><div><span>S</span></div></div>
+    <div class="card">
+      <h3>Where it went <small class="num">185 € of 600 €</small></h3>
+      <div class="flag"><i style="flex:129;background:#2f6fd1"></i><i style="flex:25;background:#e04f4f"></i><i style="flex:19;background:#d7609a"></i><i style="flex:7;background:#7d5bd0"></i><i style="flex:5;background:#ee8a2a"></i></div>
+      <div class="cr"><span><i style="background:#2f6fd1"></i>Groceries</span><b class="num">129,27 €<em>of 180</em></b></div>
+    </div>
+    <div class="fab">+</div>
+    <div class="tabs"><span class="on"><i></i>Home</span><span><i></i>Expenses</span><span><i></i>Settings</span></div>
+  </div></div><div class="cap">Glance, your real October: spending a bit ahead. The ring (spent) is past the notch (today).</div></div>
+
+  <!-- Add, typing -->
+  <div><div class="ph"><div class="s amber">
+    <div class="sb"><span>9:41</span><span>●●●</span></div>
+    <div class="disc"></div>
+    <div class="addTop"><span>Cancel</span><b>New expense</b><span style="opacity:0">x</span></div>
+    <div class="typed num">32,57<small>€</small><i class="caret"></i></div>
+    <div class="result num">After this: <b>382,02 €</b> left, about <b>15,28 €</b> a day</div>
+    <div class="chg"><i style="background:#c77a12"></i>Still amber</div>
+    <div class="key">
+      <div class="merch"><span class="sel">Mercadona</span><span>Lidl</span><span>Metro</span><span>Glovo</span><span>Panadería</span></div>
+      <div class="cats"><span class="sel"><i style="background:#2f6fd1"></i>Groceries</span><span><i style="background:#ee8a2a"></i>Eating out</span><span><i style="background:#2a9d8f"></i>Transport</span></div>
+      <div class="keys"><b>1</b><b>2</b><b>3</b><b>4</b><b>5</b><b>6</b><b>7</b><b>8</b><b>9</b><b>,</b><b>0</b><b>⌫</b></div>
+      <div class="save">Add · Today</div>
+    </div>
+  </div></div><div class="cap">Quick log: the field shows the result as you type, and warns before a change of colour.</div></div>
+
+  <!-- Over, red -->
+  <div><div class="ph"><div class="s red">
+    <div class="sb"><span>9:41</span><span>●●●</span></div>
+    <div class="disc"></div>
+    <div class="mark">€</div><div class="month">October</div>
+    <div class="ring"><svg viewBox="0 0 176 176">
+      <circle cx="88" cy="88" r="72" fill="none" stroke="#fff" stroke-width="22"/>
+      <line x1="88" y1="2" x2="88" y2="30" stroke="#4d0d11" stroke-width="5" stroke-linecap="round" transform="rotate(325 88 88)"/>
+    </svg><div class="ringin"><div><b class="num">28</b><span>of 31 days</span></div></div></div>
+    <div class="lab">Over budget by</div>
+    <div class="big num">23,40<small>€</small></div>
+    <div class="sub num">3 days to go. Next month starts on Saturday.</div>
+    <div class="state"><i></i>Over: 623,40 € of 600 €</div>
+    <div class="weekL num">This week · 41,20 € over</div>
+    <div class="week"><div class="p"><span>M</span></div><div class="p"><span>T</span></div><div class="p"><span>W</span></div><div class="p"><span>T</span></div><div class="t"><span>F</span></div><div><span>S</span></div><div><span>S</span></div></div>
+    <div class="card">
+      <h3>Where it went <small class="num">623 € of 600 €</small></h3>
+      <div class="flag"><i style="flex:240;background:#2f6fd1"></i><i style="flex:150;background:#ee8a2a"></i><i style="flex:90;background:#e04f4f"></i><i style="flex:80;background:#2a9d8f"></i><i style="flex:63;background:#d7609a"></i></div>
+      <div class="cr"><span><i style="background:#ee8a2a"></i>Eating out</span><b class="num">150,00 €<em>of 100</em></b></div>
+    </div>
+    <div class="fab">+</div>
+    <div class="tabs"><span class="on"><i></i>Home</span><span><i></i>Expenses</span><span><i></i>Settings</span></div>
+  </div></div><div class="cap">Over budget, late in the month (illustrative numbers): the whole ring is full.</div></div>
+
+</div>
+</section>
+
+<section>
+<h2>Mac and Windows window</h2>
+<div class="win">
+  <div class="s amber">
+    <div class="tl"><i></i><i></i><i></i></div>
+    <div class="disc"></div>
+    <div class="mark">€</div><div class="month">October</div>
+    <div class="ring"><svg viewBox="0 0 176 176">
+      <circle cx="88" cy="88" r="72" fill="none" stroke="rgba(255,255,255,.22)" stroke-width="22"/>
+      <circle cx="88" cy="88" r="72" fill="none" stroke="#fff" stroke-width="22" stroke-dasharray="140 452" transform="rotate(-90 88 88)"/>
+      <line x1="88" y1="2" x2="88" y2="30" stroke="#5a3404" stroke-width="5" stroke-linecap="round" transform="rotate(70 88 88)"/>
+    </svg><div class="ringin"><div><b class="num">6</b><span>of 31 days</span></div></div></div>
+    <div class="lab">Left to spend</div>
+    <div class="big num">414,59<small>€</small></div>
+    <div class="sub num">About 15,18 € a day for 25 days</div>
+    <div class="state"><i></i>29,97 € ahead of plan</div>
+    <div class="weekL num">This week · 69,32 € left</div>
+    <div class="week"><div class="p"><span>M</span></div><div class="t"><span>T</span></div><div><span>W</span></div><div><span>T</span></div><div><span>F</span></div><div><span>S</span></div><div><span>S</span></div></div>
+  </div>
+  <div class="pane">
+    <div class="nav"><a class="on">Home</a><a>Transactions</a><a>Settings</a><span class="add">+ Add expense</span></div>
+    <div class="two">
+      <div>
+        <h3>Where it went <small class="num">185,41 € of 600 €</small></h3>
+        <div class="flag"><i style="flex:129;background:#2f6fd1"></i><i style="flex:25;background:#e04f4f"></i><i style="flex:19;background:#d7609a"></i><i style="flex:7;background:#7d5bd0"></i><i style="flex:5;background:#ee8a2a"></i></div>
+        <div class="cr"><span><i style="background:#2f6fd1"></i>Groceries</span><b class="num">129,27 €<em>of 180</em></b></div>
+        <div class="cr"><span><i style="background:#e04f4f"></i>Gym &amp; Fitness</span><b class="num">24,99 €</b></div>
+        <div class="cr"><span><i style="background:#d7609a"></i>Subscriptions</span><b class="num">18,98 €</b></div>
+        <div class="cr"><span><i style="background:#7d5bd0"></i>Health</span><b class="num">7,08 €</b></div>
+        <div class="cr"><span><i style="background:#ee8a2a"></i>Eating Out</span><b class="num">5,09 €<em>of 100</em></b></div>
+      </div>
+      <div>
+        <h3>Recent <small>See all</small></h3>
+        <div class="rr"><span>Netflix<small>Subscriptions · Today</small></span><b class="num">7,99 €</b></div>
+        <div class="rr"><span>Mercadona<small>Groceries · Today</small></span><b class="num">14,89 €</b></div>
+        <div class="rr"><span>Farmacia Sol<small>Health &amp; Personal Care · Today</small></span><b class="num">7,08 €</b></div>
+        <div class="rr"><span>Lidl<small>Groceries · Yesterday</small></span><b class="num">15,41 €</b></div>
+        <div class="rr"><span>Mercadona<small>Groceries · Yesterday</small></span><b class="num">32,57 €</b></div>
+      </div>
+    </div>
+  </div>
+</div>
+</section>
+
+<section>
+<h2>Themes, redrawn</h2>
+<p class="lede" style="margin-top:0">A theme sets the field's colour when you're on plan; amber and red always mean the same thing in every theme. Automatic follows the device (Verde by day, Noche at night).</p>
+<div class="themes">
+  <div class="th"><div style="background:#1d6a48"><i style="background:#155238"></i></div>Verde</div>
+  <div class="th"><div style="background:#1f4fa8"><i style="background:#173d84"></i></div>Azul</div>
+  <div class="th"><div style="background:#0f7a7a"><i style="background:#0a5e5e"></i></div>Mar</div>
+  <div class="th"><div style="background:#6a2f6e"><i style="background:#532456"></i></div>Ciruela</div>
+  <div class="th"><div style="background:#8a4b2c"><i style="background:#6e3b22"></i></div>Teja</div>
+  <div class="th"><div style="background:#2a2b30"><i style="background:#1d1e22"></i></div>Tinta</div>
+  <div class="th"><div class="dk" style="background:#121316"><i style="background:#1d6a48"></i></div>Noche (dark)</div>
+</div>
+</section>
+</body>
+</html>

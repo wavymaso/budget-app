@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#f8fafc">
+  <meta name="theme-color" content="#1d6a48">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Budget">
   <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
@@ -15,50 +15,101 @@
   <script src="/static/vendor/chart-4.4.1.umd.js"></script>
   <style type="text/tailwindcss">
     @layer components {
-    .input { @apply w-full rounded-xl border border-slate-200 bg-surface px-3 py-2 text-base sm:text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent; }
-    .btn { @apply inline-flex items-center justify-center gap-1.5 rounded-xl px-4 py-2 text-sm font-medium transition disabled:opacity-50 disabled:cursor-not-allowed; }
-    .btn-primary { @apply bg-accent text-on-accent hover:opacity-90; }
-    .btn-secondary { @apply bg-surface border border-slate-200 text-slate-700 hover:bg-slate-50; }
+    .input { @apply w-full rounded-xl border border-slate-200 bg-surface px-3 py-2 text-base sm:text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-accent/25 focus:border-accent; }
+    .btn { @apply inline-flex items-center justify-center gap-1.5 rounded-xl px-4 py-2 text-sm font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40; }
+    .btn-primary { @apply bg-slate-900 text-slate-50 hover:bg-slate-800 active:scale-[.98]; }
+    .btn-secondary { @apply bg-surface border border-slate-200 text-slate-800 hover:bg-slate-100; }
     .btn-ghost { @apply text-slate-600 hover:bg-slate-100; }
     .btn-danger { @apply bg-red-600 text-white hover:bg-red-700; }
-    .card { @apply bg-surface rounded-[1.25rem] border border-slate-200/60; box-shadow: 0 1px 2px rgb(var(--shadow) / .04), 0 12px 32px -18px rgb(var(--shadow) / .18); }
-    .label { @apply block text-xs font-medium text-slate-500 mb-1; }
-    .chip { @apply inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm transition select-none; }
-    .link { @apply text-sm text-slate-500 hover:text-slate-900; }
+    .card { @apply bg-surface rounded-[1.375rem]; box-shadow: 0 1px 2px rgb(var(--shadow) / .05), 0 10px 28px -18px rgb(var(--shadow) / .22); }
+    .label { @apply block text-xs font-semibold text-slate-500 mb-1; }
+    .chip { @apply inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-medium transition select-none; }
+    .link { @apply text-sm font-medium text-slate-500 hover:text-slate-900; }
     }
   </style>
   <style>
     body { -webkit-tap-highlight-color: transparent; }
+    ::selection { background: rgb(var(--accent) / .22); }
+    input, textarea { caret-color: rgb(var(--accent)); }
+    :focus-visible { outline-color: rgb(var(--accent)); }
     .tabular { font-variant-numeric: tabular-nums; }
-    /* Big amounts: the theme's display face (a serif in Sand, Rose and Noir). */
-    .display { font-family: var(--font-display); font-variant-numeric: tabular-nums lining-nums; letter-spacing: -0.025em; }
-    :root[data-theme="sand"] .display, :root[data-theme="rose"] .display, :root[data-theme="noir"] .display { font-weight: 500; letter-spacing: -0.01em; }
-    /* The hero card gets a faint wash of the accent colour. */
-    .hero { background-image: radial-gradient(120% 140% at 100% 0%, rgb(var(--accent) / .07), transparent 55%); }
-    .nav-link.active { color: rgb(var(--slate-900)); background: rgb(var(--slate-100)); }
+    /* Big amounts: a heavy grotesk, tight, tabular. */
+    .display { font-family: -apple-system, "SF Pro Display", "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+               font-weight: 900; font-variant-numeric: tabular-nums lining-nums; letter-spacing: -0.045em; }
+    .display .cur { font-size: .5em; letter-spacing: -0.01em; vertical-align: .62em; margin-left: .06em; }
+
+    /* The field: one flat colour, and its colour is the budget's state (theme.js sets --field). */
+    .field { background: rgb(var(--field)); color: #fff; transition: background-color .6s cubic-bezier(.16, 1, .3, 1); }
+    .field-deep { background: rgb(var(--field-deep)); transition: background-color .6s cubic-bezier(.16, 1, .3, 1); }
+    .on-field { color: rgb(255 255 255 / .86); }
+    .bleed { width: 100vw; margin-left: calc(50% - 50vw); }
+    .disc { position: absolute; border-radius: 9999px; aspect-ratio: 1; pointer-events: none; }
+    .sheet { position: relative; margin-top: -1.75rem; border-radius: 1.75rem 1.75rem 0 0; background: rgb(var(--slate-50)); padding-top: 1.5rem; }
+    .state-pill { display: inline-flex; align-items: center; gap: .5rem; border-radius: 9999px; background: rgb(0 0 0 / .18); padding: .4rem .8rem; font-size: .875rem; font-weight: 700; }
+    .state-pill i { width: .5rem; height: .5rem; border-radius: 9999px; background: #fff; }
+    .ring-spent { transition: stroke-dasharray .7s cubic-bezier(.16, 1, .3, 1); }
+    .week-tile { position: relative; height: 2.5rem; border-radius: .45rem; background: rgb(255 255 255 / .17); overflow: hidden; }
+    .week-tile b { position: absolute; inset: auto 0 0 0; background: #fff; }
+    .week-tile.today { box-shadow: inset 0 0 0 2.5px #fff; }
+    .week-tile.future { background: rgb(255 255 255 / .08); }
+    .flag { display: flex; gap: 3px; height: 1.375rem; border-radius: .4rem; overflow: hidden; }
+    .flag i { display: block; min-width: 3px; }
+
+    /* The header: page-coloured, or part of the field on Home. */
+    .site-header { background: rgb(var(--slate-50) / .9); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); border-bottom: 1px solid rgb(var(--slate-200) / .7); }
+    .site-header .mark { background: rgb(var(--field)); color: #fff; transition: background-color .6s cubic-bezier(.16, 1, .3, 1); }
+    .site-header .add-btn { background: rgb(var(--slate-900)); color: rgb(var(--slate-50)); }
+    body[data-route="home"] .site-header, body[data-route="add"] .site-header { background: rgb(var(--field)); border-color: transparent; -webkit-backdrop-filter: none; backdrop-filter: none; color: #fff;
+      transition: background-color .6s cubic-bezier(.16, 1, .3, 1); }
+    body[data-route="home"] .site-header .brand, body[data-route="add"] .site-header .brand { color: #fff; }
+    body[data-route="home"] .site-header .mark, body[data-route="add"] .site-header .mark { background: #fff; color: rgb(var(--field)); }
+    body[data-route="home"] .site-header .add-btn, body[data-route="add"] .site-header .add-btn { background: #fff; color: rgb(var(--field)); }
+    body[data-route="home"] .nav-link, body[data-route="add"] .nav-link { color: rgb(255 255 255 / .8); }
+    body[data-route="home"] .nav-link:hover, body[data-route="add"] .nav-link:hover { color: #fff; }
+    .nav-link.active { color: rgb(var(--slate-900)); background: rgb(var(--slate-200) / .7); }
+    body[data-route="home"] .nav-link.active, body[data-route="add"] .nav-link.active { color: #fff; background: rgb(255 255 255 / .16); }
     .bottom-link.active { color: rgb(var(--accent)); }
+    :root[data-mode="dark"] .bottom-link.active { color: rgb(var(--slate-900)); }
+
+    /* Add: the amount is typed straight onto the field. */
+    .amount-field label { color: rgb(255 255 255 / .86); font-size: .9375rem; }
+    .amount-field input { background: transparent !important; border: 0 !important; box-shadow: none !important; color: #fff !important; caret-color: #fff;
+      font-family: -apple-system, "SF Pro Display", "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif; font-weight: 900;
+      font-size: clamp(3.25rem, 15vw, 5rem) !important; line-height: 1; letter-spacing: -0.045em; padding: .25rem 3.5rem .25rem 0 !important; }
+    .amount-field input::placeholder { color: rgb(255 255 255 / .45); }
+    .amount-field input:focus { --tw-ring-shadow: 0 0 #0000 !important; }
+    /* The euro sign follows the number where the browser can size the input to its text. */
+    .amount-field .relative { display: flex; align-items: flex-start; }
+    .amount-field span { position: static !important; transform: none !important; color: rgb(255 255 255 / .8) !important; font-size: 2rem !important; font-weight: 900; margin: .55rem 0 0 .15rem; }
+    @supports (field-sizing: content) {
+      .amount-field input { field-sizing: content; width: auto !important; min-width: 4ch; max-width: 100%; padding-right: 0 !important; }
+    }
+
     input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; }
     summary::-webkit-details-marker { display: none; }
     /* Category letter badges: a soft tint of the colour; lighter text on dark themes. */
-    .cat-avatar { background: color-mix(in srgb, var(--c) 15%, transparent); color: var(--c); }
+    .cat-avatar { background: color-mix(in srgb, var(--c) 14%, transparent); color: var(--c); border-radius: .7rem !important; }
     :root[data-mode="dark"] .cat-avatar { background: color-mix(in srgb, var(--c) 25%, transparent); color: color-mix(in srgb, var(--c) 55%, white); }
     details[open] > summary [data-chevron] { transform: rotate(90deg); }
     @media (prefers-reduced-motion: no-preference) {
-      #view > * { animation: fade-in .18s ease-out; }
-      @keyframes fade-in { from { opacity: 0; transform: translateY(4px); } }
+      #view > * { animation: fade-in .2s cubic-bezier(.16, 1, .3, 1); }
+      @keyframes fade-in { from { opacity: 0; } }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .field, .field-deep, .site-header, .site-header .mark, .ring-spent { transition: none !important; }
     }
   </style>
 </head>
 <body class="bg-slate-50 text-slate-800 antialiased">
   <!-- Top bar -->
-  <header class="sticky top-0 z-20 bg-slate-50/85 backdrop-blur border-b border-slate-200/70">
+  <header class="site-header sticky top-0 z-20">
     <div class="max-w-4xl mx-auto px-4 h-14 flex items-center gap-6">
-      <a href="#/home" class="font-semibold text-slate-900 flex items-center gap-2">
-        <span class="inline-flex w-7 h-7 rounded-lg bg-accent text-on-accent items-center justify-center text-sm">€</span>
+      <a href="#/home" class="brand font-bold text-slate-900 flex items-center gap-2.5 tracking-tight">
+        <span class="mark inline-flex w-8 h-8 rounded-full items-center justify-center text-[15px] font-black" aria-hidden="true">€</span>
         Budget
       </a>
-      <nav id="top-nav" class="hidden sm:flex gap-1 text-sm text-slate-500"></nav>
-      <a href="#/add" class="btn btn-primary ml-auto hidden sm:inline-flex !py-1.5 !px-3" title="Add an expense (N)">
+      <nav id="top-nav" class="hidden sm:flex gap-1 text-sm font-semibold text-slate-500"></nav>
+      <a href="#/add" class="add-btn btn ml-auto hidden sm:inline-flex !py-1.5 !px-3.5 hover:opacity-90" title="Add an expense (N)">
         <span class="text-lg leading-none">+</span> Add expense
       </a>
     </div>

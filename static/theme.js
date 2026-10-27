@@ -1,11 +1,12 @@
 "use strict";
-/* Colour themes.
+/* Colour themes (Campo, Oct 2026).
 
-   Every neutral (Tailwind's `slate-*`), the card colour (`surface`), the accent
-   and the status tints (amber, emerald, red, sky, violet) are CSS variables, so
-   one theme switch recolours the whole app. Loaded right after Tailwind on every
-   page; the last choice is cached in this browser so pages open in the right
-   colours before the server answers. */
+   Each theme is a field colour (its own hue when you're on plan, the shared amber and red when
+   spending runs ahead or goes over) plus the UI around it: neutrals (Tailwind's `slate-*`), the
+   card colour (`surface`), the accent and the status tints, all CSS variables, so one switch
+   recolours the whole app. `data-state` on <html> picks the field's colour (Theme.setState).
+   Loaded right after Tailwind on every page; the last theme and state are cached in this
+   browser so pages open in the right colours before the server answers. */
 
 (function () {
   const rgb = (hex) => hex.match(/\w\w/g).map((h) => parseInt(h, 16)).join(" ");
@@ -20,44 +21,36 @@
     violet:  ["f5f3ff", "ede9fe", "ddd6fe", "c4b5fd", "a78bfa", "8b5cf6", "7c3aed", "6d28d9", "5b21b6", "4c1d95", "2e1065"],
   };
 
-  // Each theme: label, dark?, display font for the big numbers ("serif" or "sans"),
-  // card surface, accent and the text on it, and neutrals 50..950 (page background first).
-  const SERIF = 'ui-serif, "New York", "Iowan Old Style", Georgia, serif';
-  const SANS = 'ui-sans-serif, system-ui, -apple-system, "SF Pro Display", "Segoe UI", sans-serif';
+  // Each theme: the field's colour when you're on plan (the theme's own hue) with its deeper shade,
+  // the UI around it (page ground, card surface, neutrals 50..950, page ground first), and the
+  // accent for selection and focus (the theme's hue). Amber and red mean the same in every theme.
+  const LIGHT = ["f4f4f5", "ececee", "e2e3e6", "cfd1d6", "a0a3ab", "70737b", "53565d", "3f4147", "27292d", "16171a", "0a0b0c"];
+  const AMBER = ["a3600a", "874f08"], RED = ["b4272f", "901c23"];      // white text passes 4.5:1 on both
+  const light = (label, ground, field, deep) => ({
+    label, dark: false, surface: "ffffff", accent: field, onAccent: "ffffff", neutral: [ground, ...LIGHT.slice(1)],
+    field: { green: [field, deep], amber: AMBER, red: RED },
+  });
   const THEMES = {
-    light: {
-      label: "Light", dark: false, display: "sans", surface: "ffffff", accent: "18181b", onAccent: "ffffff",
-      neutral: ["f7f7f8", "f0f0f2", "e4e4e7", "d4d4d8", "a1a1aa", "71717a", "52525b", "3f3f46", "27272a", "18181b", "09090b"],
-    },
-    dark: {
-      label: "Dark", dark: true, display: "sans", surface: "17191f", accent: "b7c4ff", onAccent: "0d0e12",
-      neutral: ["0d0e12", "20232b", "2b2f39", "3c414d", "697084", "8f96a8", "b1b7c6", "cdd2dd", "e3e6ed", "f3f4f8", "ffffff"],
-    },
-    sand: {
-      label: "Sand", dark: false, display: "serif", surface: "fffdf8", accent: "9a4a2c", onAccent: "fffaf3",
-      neutral: ["f4eee4", "efe7da", "e4d9c8", "d3c4ae", "a69680", "7a6b58", "5a4e40", "463c31", "2d261f", "1f1a15", "110e0b"],
-    },
-    ocean: {
-      label: "Ocean", dark: false, display: "sans", surface: "ffffff", accent: "1d5a7d", onAccent: "ffffff",
-      neutral: ["edf2f5", "e3eaef", "d2dde5", "b5c6d2", "8399a8", "5c7282", "425664", "324350", "1f2c36", "121d25", "080f14"],
-    },
-    lavender: {
-      label: "Lavender", dark: false, display: "sans", surface: "ffffff", accent: "6a4c9c", onAccent: "ffffff",
-      neutral: ["f4f2f8", "edeaf4", "e0dbeb", "cbc4da", "9d94b1", "726a86", "554e66", "413b4f", "2a2634", "1b1822", "0e0c12"],
-    },
-    rose: {
-      label: "Rose", dark: false, display: "serif", surface: "fffbfa", accent: "8e2c48", onAccent: "fff7f8",
-      neutral: ["f8efee", "f3e6e5", "eadad8", "dbc5c3", "b09897", "84706f", "634f50", "4d3c3d", "322627", "211819", "120c0d"],
-    },
-    noir: {
-      label: "Noir", dark: true, display: "serif", surface: "121212", accent: "d8b46a", onAccent: "141008",
-      neutral: ["050505", "1c1c1c", "262626", "363636", "5e5e5e", "8a8a8a", "ababab", "c8c8c8", "e0e0e0", "f2f2f2", "ffffff"],
+    verde:   light("Verde", "f1f4f2", "1d6a48", "155238"),
+    azul:    light("Azul", "f1f3f8", "1f4fa8", "173d84"),
+    mar:     light("Mar", "eff5f5", "0f6f70", "0a5556"),
+    ciruela: light("Ciruela", "f5f2f5", "6a2f6e", "532456"),
+    teja:    light("Teja", "f6f2ef", "8a4b2c", "6e3b22"),
+    tinta:   light("Tinta", "f3f3f4", "2a2b30", "1a1b1f"),
+    noche: {
+      label: "Noche", dark: true, surface: "16171b", accent: "5cc28f", onAccent: "0d0e10",
+      neutral: ["0d0e10", "1d1f23", "27292e", "373a40", "5c6068", "868a93", "a9adb5", "c9ccd2", "e1e3e7", "f3f4f6", "ffffff"],
+      field: { green: ["15402d", "0f3021"], amber: ["6b4109", "573406"], red: ["6e1a20", "581419"] },
     },
   };
+  // Themes from before the Campo look (Oct 2026) open as their nearest new one.
+  const OLD = { light: "verde", dark: "noche", sand: "teja", ocean: "mar", lavender: "ciruela", rose: "ciruela", noir: "noche" };
+  const canonical = (name) => OLD[name] || name;
 
   function vars(t) {
     const out = [`--surface:${rgb(t.surface)}`, `--accent:${rgb(t.accent)}`, `--on-accent:${rgb(t.onAccent)}`,
-                 `--shadow:${t.dark ? "0 0 0" : rgb(t.neutral[9])}`, `--font-display:${t.display === "serif" ? SERIF : SANS}`];
+                 `--shadow:${t.dark ? "0 0 0" : rgb(t.neutral[9])}`];
+    for (const [st, [base, deep]] of Object.entries(t.field)) out.push(`--field-${st}:${rgb(base)}`, `--field-${st}-deep:${rgb(deep)}`);
     STEPS.forEach((s, i) => out.push(`--slate-${s}:${rgb(t.neutral[i])}`));
     for (const [name, shades] of Object.entries(TINTS)) {
       // Dark themes flip each tint scale, so pale backgrounds become deep ones
@@ -70,6 +63,9 @@
   const style = document.createElement("style");
   style.textContent = Object.entries(THEMES)
     .map(([name, t]) => `:root[data-theme="${name}"]{${vars(t)};color-scheme:${t.dark ? "dark" : "light"}}`).join("\n")
+    // The field: the budget's state (green on plan, amber when spending runs ahead, red when over).
+    + "\n" + ["green", "amber", "red"].map((st) => `:root[data-state="${st}"]{--field:var(--field-${st});--field-deep:var(--field-${st}-deep)}`).join("\n")
+    + "\n:root:not([data-state]){--field:var(--field-green);--field-deep:var(--field-green-deep)}"
     // Switch every colour at once instead of letting buttons fade between themes.
     + "\n.theme-switching, .theme-switching * { transition: none !important; }";
   document.head.append(style);
@@ -86,6 +82,8 @@
           surface: v("surface"),
           accent: v("accent"),
           "on-accent": v("on-accent"),
+          field: v("field"),
+          "field-deep": v("field-deep"),
         },
       },
     },
@@ -93,12 +91,14 @@
 
   const media = window.matchMedia("(prefers-color-scheme: dark)");
   let choice = "auto";
-  try { choice = localStorage.getItem("budget-theme") || "auto"; } catch { /* storage blocked */ }
+  try { choice = canonical(localStorage.getItem("budget-theme") || "auto"); } catch { /* storage blocked */ }
+  // The last known budget state, so the field opens in the right colour before the server answers.
+  try { const st = localStorage.getItem("budget-state"); if (st) document.documentElement.dataset.state = st; } catch { /* storage blocked */ }
 
-  const resolved = () => (choice === "auto" ? (media.matches ? "dark" : "light") : choice);
+  const resolved = () => (choice === "auto" ? (media.matches ? "noche" : "verde") : choice);
 
   function apply() {
-    const name = THEMES[resolved()] ? resolved() : "light";
+    const name = THEMES[resolved()] ? resolved() : "verde";
     const root = document.documentElement;
     root.classList.add("theme-switching");
     root.dataset.theme = name;
@@ -106,7 +106,7 @@
     requestAnimationFrame(() => requestAnimationFrame(() => root.classList.remove("theme-switching")));
     let meta = document.querySelector('meta[name="theme-color"]');
     if (!meta) { meta = document.createElement("meta"); meta.name = "theme-color"; document.head.append(meta); }
-    meta.content = `#${THEMES[name].neutral[0]}`;
+    meta.content = getComputedStyle(root).getPropertyValue("--field") ? `rgb(${getComputedStyle(root).getPropertyValue("--field").trim()})` : `#${THEMES[name].neutral[0]}`;
     window.dispatchEvent(new CustomEvent("themechange", { detail: name }));
   }
   media.addEventListener("change", () => { if (choice === "auto") apply(); });
@@ -115,7 +115,17 @@
     THEMES,
     get choice() { return choice; },
     get current() { return resolved(); },
+    canonical,
+    /** The budget's state on every page: "green", "amber", "red" (or null: no monthly budget). */
+    setState(st) {
+      const root = document.documentElement;
+      if (st) root.dataset.state = st; else delete root.dataset.state;
+      try { st ? localStorage.setItem("budget-state", st) : localStorage.removeItem("budget-state"); } catch { /* storage blocked */ }
+      const meta = document.querySelector('meta[name="theme-color"]');
+      if (meta) meta.content = `rgb(${getComputedStyle(root).getPropertyValue("--field").trim()})`;
+    },
     set(name) {
+      name = canonical(name);
       choice = name === "auto" || THEMES[name] ? name : "auto";
       try { localStorage.setItem("budget-theme", choice); } catch { /* storage blocked */ }
       apply();
